@@ -2279,9 +2279,10 @@ bool ssl_setup_key_shares(SSL_HANDSHAKE *hs, uint16_t override_group_id) {
       } else if (enable_three_key_shares && third_group_id == 0 && 
                  (is_custom || is_post_quantum_group(group_id) != is_post_quantum_group(groups[i]))) {
         third_group_id = groups[i];
+      }
     }
   }
-
+    
   CBB key_exchange;
   hs->key_shares[0] = SSLKeyShare::Create(group_id);
   if (!hs->key_shares[0] ||  //
