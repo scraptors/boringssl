@@ -537,7 +537,9 @@ ssl_ctx_st::ssl_ctx_st(const SSL_METHOD *ssl_method)
       handoff(false),
       enable_early_data(false),
       aes_hw_override(false),
-      aes_hw_override_value(false) {
+      aes_hw_override_value(false),
+      key_shares_limit(0),
+      preserve_tls13_cipher_list(false) {
   CRYPTO_MUTEX_init(&lock);
   CRYPTO_new_ex_data(&ex_data);
 }
@@ -660,11 +662,14 @@ SSL *SSL_new(SSL_CTX *ctx) {
   ssl->config->aes_hw_override = ctx->aes_hw_override;
   ssl->config->aes_hw_override_value = ctx->aes_hw_override_value;
   ssl->config->tls13_cipher_policy = ctx->tls13_cipher_policy;
+  ssl->config->key_shares_limit = ctx->key_shares_limit;
+  ssl->config->preserve_tls13_cipher_list = ctx->preserve_tls13_cipher_list;
 
   if (!ssl->config->supported_group_list.CopyFrom(ctx->supported_group_list) ||
       !ssl->config->alpn_client_proto_list.CopyFrom(
           ctx->alpn_client_proto_list) ||
-      !ssl->config->verify_sigalgs.CopyFrom(ctx->verify_sigalgs)) {
+      !ssl->config->verify_sigalgs.CopyFrom(ctx->verify_sigalgs) ||
+      !ssl->config->delegated_credentials.CopyFrom(ctx->delegated_credentials)) {
     return nullptr;
   }
 
@@ -684,6 +689,7 @@ SSL *SSL_new(SSL_CTX *ctx) {
   ssl->config->signed_cert_timestamps_enabled =
       ctx->signed_cert_timestamps_enabled;
   ssl->config->ocsp_stapling_enabled = ctx->ocsp_stapling_enabled;
+  ssl->config->record_size_limit = ctx->record_size_limit;
   ssl->config->handoff = ctx->handoff;
   ssl->quic_method = ctx->quic_method;
 
@@ -708,7 +714,9 @@ SSL_CONFIG::SSL_CONFIG(SSL *ssl_arg)
       jdk11_workaround(false),
       quic_use_legacy_codepoint(false),
       permute_extensions(false),
-      alps_use_new_codepoint(false) {
+      alps_use_new_codepoint(false),
+      key_shares_limit(0),
+      preserve_tls13_cipher_list(false) {
   assert(ssl);
 }
 
@@ -2117,6 +2125,11 @@ const char *SSL_get_cipher_list(const SSL *ssl, int n) {
 int SSL_CTX_set_cipher_list(SSL_CTX *ctx, const char *str) {
   const bool has_aes_hw = ctx->aes_hw_override ? ctx->aes_hw_override_value
                                                : EVP_has_aes_hardware();
+
+  if (ctx->preserve_tls13_cipher_list) {
+    ssl_create_preserve_tls13_cipher_list(&ctx->tls13_cipher_list, str, false /* not strict */);
+  }
+
   return ssl_create_cipher_list(&ctx->cipher_list, has_aes_hw, str,
                                 false /* not strict */);
 }
@@ -2124,6 +2137,11 @@ int SSL_CTX_set_cipher_list(SSL_CTX *ctx, const char *str) {
 int SSL_CTX_set_strict_cipher_list(SSL_CTX *ctx, const char *str) {
   const bool has_aes_hw = ctx->aes_hw_override ? ctx->aes_hw_override_value
                                                : EVP_has_aes_hardware();
+
+  if (ctx->preserve_tls13_cipher_list) {
+    ssl_create_preserve_tls13_cipher_list(&ctx->tls13_cipher_list, str, true /* strict */);
+  }
+
   return ssl_create_cipher_list(&ctx->cipher_list, has_aes_hw, str,
                                 true /* strict */);
 }
@@ -2208,6 +2226,62 @@ void SSL_enable_ocsp_stapling(SSL *ssl) {
     return;
   }
   ssl->config->ocsp_stapling_enabled = true;
+}
+
+void SSL_set_record_size_limit(SSL *ssl, uint16_t limit) {
+  if (!ssl->config) {
+    return;
+  }
+  ssl->config->record_size_limit = limit;
+}
+
+void SSL_CTX_set_record_size_limit(SSL_CTX *ctx, uint16_t limit) {
+  ctx->record_size_limit = limit;
+}
+
+void SSL_set_key_shares_limit(SSL *ssl, uint8_t limit) {
+  if (!ssl->config) {
+    return;
+  }
+  ssl->config->key_shares_limit = limit;
+}
+
+void SSL_CTX_set_key_shares_limit(SSL_CTX *ctx, uint8_t limit) {
+  ctx->key_shares_limit = limit;
+}
+
+void SSL_CTX_set_aes_hw_override(SSL_CTX *ctx, int override_value) {
+  if (!ctx) {
+    return;
+  }
+  
+  ctx->aes_hw_override = true;
+  ctx->aes_hw_override_value = !!override_value;
+}
+
+void SSL_set_aes_hw_override(SSL *ssl, int override_value) {
+  if (!ssl->config) {
+    return;
+  }
+
+  ssl->config->aes_hw_override = true;
+  ssl->config->aes_hw_override_value = !!override_value;
+}
+
+void SSL_CTX_set_preserve_tls13_cipher_list(SSL_CTX *ctx, int preserve_tls13_cipher_list) {
+  if (!ctx) {
+    return;
+  }
+  
+  ctx->preserve_tls13_cipher_list = !!preserve_tls13_cipher_list;
+}
+
+void SSL_set_preserve_tls13_cipher_list(SSL *ssl, int preserve_tls13_cipher_list) {
+  if (!ssl->config) {
+    return;
+  }
+
+  ssl->config->preserve_tls13_cipher_list = !!preserve_tls13_cipher_list;
 }
 
 void SSL_get0_signed_cert_timestamp_list(const SSL *ssl, const uint8_t **out,
@@ -3022,6 +3096,21 @@ void SSL_set_permute_extensions(SSL *ssl, int enabled) {
   ssl->config->permute_extensions = !!enabled;
 }
 
+int SSL_CTX_set_extension_order(SSL_CTX *ctx, const uint16_t *ids, int num) {
+  Array<uint16_t> order;
+  if (num > 0) {
+      if (!order.Init(num)) {
+          return 0;
+      }
+      int i;
+      for (i = 0; i < num; i++) {
+          order[i] = ids[i];
+      }
+  }
+  ctx->extension_order = std::move(order);
+  return 1;
+}
+
 int32_t SSL_get_ticket_age_skew(const SSL *ssl) {
   return ssl->s3->ticket_age_skew;
 }
@@ -3260,7 +3349,7 @@ namespace fips202205 {
 // Section 3.3.1
 // "The server shall be configured to only use cipher suites that are
 // composed entirely of NIST approved algorithms"
-static const uint16_t kGroups[] = {SSL_GROUP_SECP256R1, SSL_GROUP_SECP384R1};
+static const uint16_t kGroups[] = {SSL_GROUP_P256_KYBER768_DRAFT00, SSL_GROUP_SECP256R1, SSL_GROUP_SECP384R1};
 
 static const uint16_t kSigAlgs[] = {
     SSL_SIGN_RSA_PKCS1_SHA256,

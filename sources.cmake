@@ -52,7 +52,6 @@ set(
   crypto/hrss/hrss_test.cc
   crypto/impl_dispatch_test.cc
   crypto/keccak/keccak_test.cc
-  crypto/kyber/kyber_test.cc
   crypto/lhash/lhash_test.cc
   crypto/obj/obj_test.cc
   crypto/pem/pem_test.cc
@@ -145,7 +144,6 @@ set(
   crypto/hmac_extra/hmac_tests.txt
   crypto/hpke/hpke_test_vectors.txt
   crypto/keccak/keccak_tests.txt
-  crypto/kyber/kyber_tests.txt
   crypto/pkcs8/test/empty_password.p12
   crypto/pkcs8/test/no_encryption.p12
   crypto/pkcs8/test/nss.p12

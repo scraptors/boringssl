@@ -158,6 +158,8 @@
 #include <openssl/aead.h>
 #include <openssl/bn.h>
 #include <openssl/bytestring.h>
+#include <openssl/dh.h>
+#include <../crypto/fipsmodule/dh/internal.h>
 #include <openssl/ec_key.h>
 #include <openssl/ecdsa.h>
 #include <openssl/err.h>
@@ -243,23 +245,35 @@ static bool ssl_write_client_cipher_list(const SSL_HANDSHAKE *hs, CBB *out,
   // Add TLS 1.3 ciphers. Order ChaCha20-Poly1305 relative to AES-GCM based on
   // hardware support.
   if (hs->max_version >= TLS1_3_VERSION) {
-    const bool has_aes_hw = ssl->config->aes_hw_override
-                                ? ssl->config->aes_hw_override_value
-                                : EVP_has_aes_hardware();
+    if (ssl->config->preserve_tls13_cipher_list &&
+      ssl->ctx->tls13_cipher_list != NULL &&
+      sk_SSL_CIPHER_num(ssl->ctx->tls13_cipher_list->ciphers.get()) >= 1) {
+       for (size_t i = 0; i < sk_SSL_CIPHER_num(ssl->ctx->tls13_cipher_list->ciphers.get()); i++) {
+        const SSL_CIPHER *cipher = sk_SSL_CIPHER_value(ssl->ctx->tls13_cipher_list->ciphers.get(), i);
+        uint16_t cipher_id = SSL_CIPHER_get_protocol_id(cipher);
+        if (!ssl_add_tls13_cipher(&child, cipher_id, ssl->config->tls13_cipher_policy)) {
+          return false;
+        }
+      }
+    } else {
+      const bool has_aes_hw = ssl->config->aes_hw_override
+                                  ? ssl->config->aes_hw_override_value
+                                  : EVP_has_aes_hardware();
 
-    if ((!has_aes_hw &&  //
-         !ssl_add_tls13_cipher(&child,
-                               TLS1_3_CK_CHACHA20_POLY1305_SHA256 & 0xffff,
-                               ssl->config->tls13_cipher_policy)) ||
-        !ssl_add_tls13_cipher(&child, TLS1_3_CK_AES_128_GCM_SHA256 & 0xffff,
-                              ssl->config->tls13_cipher_policy) ||
-        !ssl_add_tls13_cipher(&child, TLS1_3_CK_AES_256_GCM_SHA384 & 0xffff,
-                              ssl->config->tls13_cipher_policy) ||
-        (has_aes_hw &&  //
-         !ssl_add_tls13_cipher(&child,
-                               TLS1_3_CK_CHACHA20_POLY1305_SHA256 & 0xffff,
-                               ssl->config->tls13_cipher_policy))) {
-      return false;
+      if ((!has_aes_hw &&  //
+           !ssl_add_tls13_cipher(&child,
+                                 TLS1_3_CK_CHACHA20_POLY1305_SHA256 & 0xffff,
+                                 ssl->config->tls13_cipher_policy)) ||
+          !ssl_add_tls13_cipher(&child, TLS1_3_CK_AES_128_GCM_SHA256 & 0xffff,
+                                ssl->config->tls13_cipher_policy) ||
+          !ssl_add_tls13_cipher(&child, TLS1_3_CK_AES_256_GCM_SHA384 & 0xffff,
+                                ssl->config->tls13_cipher_policy) ||
+          (has_aes_hw &&  //
+           !ssl_add_tls13_cipher(&child,
+                                 TLS1_3_CK_CHACHA20_POLY1305_SHA256 & 0xffff,
+                                 ssl->config->tls13_cipher_policy))) {
+        return false;
+      }
     }
   }
 
@@ -538,7 +552,7 @@ static enum ssl_hs_wait_t do_start_connect(SSL_HANDSHAKE *hs) {
   }
 
   if (!ssl_setup_key_shares(hs, /*override_group_id=*/0) ||
-      !ssl_setup_extension_permutation(hs) ||
+      !ssl_setup_extension_order(hs) ||
       !ssl_encrypt_client_hello(hs, MakeConstSpan(ech_enc, ech_enc_len)) ||
       !ssl_add_client_hello(hs)) {
     return ssl_hs_error;
@@ -1119,7 +1133,26 @@ static enum ssl_hs_wait_t do_read_server_key_exchange(SSL_HANDSHAKE *hs) {
     hs->peer_psk_identity_hint.reset(raw);
   }
 
-  if (alg_k & SSL_kECDHE) {
+  if (alg_k & SSL_kDHE) {
+    CBS dh_p, dh_g, dh_Ys;
+    if (!CBS_get_u16_length_prefixed(&server_key_exchange, &dh_p) ||
+        CBS_len(&dh_p) == 0 ||
+        !CBS_get_u16_length_prefixed(&server_key_exchange, &dh_g) ||
+        CBS_len(&dh_g) == 0 ||
+        !CBS_get_u16_length_prefixed(&server_key_exchange, &dh_Ys) ||
+        CBS_len(&dh_Ys) == 0) {
+      OPENSSL_PUT_ERROR(SSL, SSL_R_DECODE_ERROR);
+      ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_DECODE_ERROR);
+      return ssl_hs_error;
+    }
+    if (!hs->dh_p.CopyFrom(dh_p) || !hs->dh_g.CopyFrom(dh_g)) {
+      return ssl_hs_error;
+    }
+    /* Save the peer public key for later. */
+    if (!hs->peer_key.CopyFrom(dh_Ys)) {
+      return ssl_hs_error;
+    }
+  } else if (alg_k & SSL_kECDHE) {
     // Parse the server parameters.
     uint8_t group_type;
     uint16_t group_id;
@@ -1477,6 +1510,58 @@ static enum ssl_hs_wait_t do_send_client_key_exchange(SSL_HANDSHAKE *hs) {
         !CBB_flush(&body)) {
       return ssl_hs_error;
     }
+  } else if (alg_k & SSL_kDHE) {
+    DH *dh = DH_new();
+    if (dh == nullptr) {
+      return ssl_hs_error;
+    }
+    dh->p = BN_bin2bn(hs->dh_p.data(), hs->dh_p.size(), nullptr);
+    dh->g = BN_bin2bn(hs->dh_g.data(), hs->dh_g.size(), nullptr);
+    if (dh->p == nullptr || dh->g == nullptr) {
+      DH_free(dh);
+      return ssl_hs_error;
+    }
+    unsigned bits = DH_num_bits(dh);
+    if (bits < 1024) {
+      OPENSSL_PUT_ERROR(SSL, SSL_R_BAD_DH_P_LENGTH);
+      DH_free(dh);
+      return ssl_hs_error;
+    } else if (bits > 4096) {
+      /* Overly large DHE groups are prohibitively expensive, so enforce a limit
+       * to prevent a server from causing us to perform too expensive of a
+       * computation. */
+      OPENSSL_PUT_ERROR(SSL, SSL_R_DH_P_TOO_LONG);
+      DH_free(dh);
+      return ssl_hs_error;
+    }
+    
+    CBB child;
+    if (!CBB_add_u16_length_prefixed(&body, &child)) {
+      DH_free(dh);
+      return ssl_hs_error;
+    }
+    if (!DH_generate_key(dh) || 
+        !BN_bn2cbb_padded(&child, BN_num_bytes(dh->p), dh->pub_key)) {
+      DH_free(dh);
+      ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
+      return ssl_hs_error;
+    }
+    int secret_len = 0;
+    BIGNUM *peer_point = BN_bin2bn(hs->peer_key.data(), hs->peer_key.size(), nullptr);
+    if (peer_point == nullptr || 
+        !pms.InitForOverwrite(DH_size(dh)) || 
+        (secret_len = DH_compute_key(pms.data(), peer_point, dh)) <= 0) {
+      BN_free(peer_point);
+      DH_free(dh);
+      ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
+      return ssl_hs_error;
+    }
+    pms.Shrink(secret_len);
+    BN_free(peer_point);
+    DH_free(dh);
+    hs->dh_p.Reset();
+    hs->dh_g.Reset();
+    hs->peer_key.Reset();
   } else if (alg_k & SSL_kECDHE) {
     CBB child;
     if (!CBB_add_u8_length_prefixed(&body, &child)) {

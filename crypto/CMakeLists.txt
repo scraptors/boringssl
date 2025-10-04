@@ -176,7 +176,9 @@ add_library(
   hpke/hpke.c
   hrss/hrss.c
   keccak/keccak.c
-  kyber/kyber.c
+  kyber/kyber512.c
+  kyber/kyber768.c
+  kyber/kyber1024.c
   lhash/lhash.c
   mem.c
   obj/obj.c
