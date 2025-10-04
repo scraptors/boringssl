@@ -4255,6 +4255,26 @@ extern "C" {
 #define SN_X25519Kyber768Draft00 "X25519Kyber768Draft00"
 #define NID_X25519Kyber768Draft00 964
 
+#define SN_X25519Kyber512Draft00 "X25519Kyber512Draft00"
+#define NID_X25519Kyber512Draft00 965
+
+#define SN_P256Kyber768Draft00 "P256Kyber768Draft00"
+#define NID_P256Kyber768Draft00 966
+
+#define SN_X25519Kyber768Draft00Old "X25519Kyber768Draft00Old"
+#define NID_X25519Kyber768Draft00Old 967
+
+#define SN_X25519MLKEM768 "X25519MLKEM768"
+#define NID_X25519MLKEM768 968
+
+#define SN_ffdhe2048 "ffdhe2048"
+#define NID_ffdhe2048 969
+
+#define SN_ffdhe3072 "ffdhe3072"
+#define NID_ffdhe3072 970
+
+#define SN_MLKEM1024 "MLKEM1024"
+#define NID_MLKEM1024 971
 
 #if defined(__cplusplus)
 } /* extern C */

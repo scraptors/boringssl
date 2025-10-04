@@ -323,6 +323,19 @@ class Array {
     return true;
   }
 
+  // InitForOverwrite behaves like |Init| but it default-constructs each element
+  // instead. This means that, if |T| is a primitive type, the array will be
+  // uninitialized and thus must be filled in by the caller.
+  [[nodiscard]] bool InitForOverwrite(size_t new_size) {
+    if (!InitUninitialized(new_size)) {
+      return false;
+    }
+    for (size_t i = 0; i < size_; i++) {
+      new (&data_[i]) T;
+    }
+    return true;
+  }
+
   // CopyFrom replaces the array with a newly-allocated copy of |in|. It returns
   // true on success and false on error.
   bool CopyFrom(Span<const T> in) {
@@ -346,6 +359,27 @@ class Array {
   }
 
  private:
+  // InitUninitialized replaces the array with a newly-allocated array of
+  // |new_size| elements, but whose constructor has not yet run. On success, the
+  // elements must be constructed before returning control to the caller.
+  bool InitUninitialized(size_t new_size) {
+    Reset();
+    if (new_size == 0) {
+      return true;
+    }
+
+    if (new_size > std::numeric_limits<size_t>::max() / sizeof(T)) {
+      OPENSSL_PUT_ERROR(SSL, ERR_R_OVERFLOW);
+      return false;
+    }
+    data_ = reinterpret_cast<T *>(OPENSSL_malloc(new_size * sizeof(T)));
+    if (data_ == nullptr) {
+      return false;
+    }
+    size_ = new_size;
+    return true;
+  }
+  
   T *data_ = nullptr;
   size_t size_ = 0;
 };
@@ -527,10 +561,11 @@ BSSL_NAMESPACE_BEGIN
 
 // Bits for |algorithm_mkey| (key exchange algorithm).
 #define SSL_kRSA 0x00000001u
-#define SSL_kECDHE 0x00000002u
+#define SSL_kDHE 0x00000002u
+#define SSL_kECDHE 0x00000004u
 // SSL_kPSK is only set for plain PSK, not ECDHE_PSK.
-#define SSL_kPSK 0x00000004u
-#define SSL_kGENERIC 0x00000008u
+#define SSL_kPSK 0x00000008u
+#define SSL_kGENERIC 0x00000010u
 
 // Bits for |algorithm_auth| (server authentication).
 #define SSL_aRSA 0x00000001u
@@ -554,8 +589,13 @@ BSSL_NAMESPACE_BEGIN
 // Bits for |algorithm_mac| (symmetric authentication).
 #define SSL_SHA1 0x00000001u
 #define SSL_SHA256 0x00000002u
+// 
+// SSL_SHA384 was removed in
+// https://boringssl-review.googlesource.com/c/boringssl/+/27944/
+// but restored to impersonate browsers with older ciphers.
+#define SSL_SHA384 0x00000004u
 // SSL_AEAD is set for all AEADs.
-#define SSL_AEAD 0x00000004u
+#define SSL_AEAD 0x00000008u
 
 // Bits for |algorithm_prf| (handshake digest).
 #define SSL_HANDSHAKE_MAC_DEFAULT 0x1
@@ -638,6 +678,12 @@ const EVP_MD *ssl_get_handshake_digest(uint16_t version,
 bool ssl_create_cipher_list(UniquePtr<SSLCipherPreferenceList> *out_cipher_list,
                             const bool has_aes_hw, const char *rule_str,
                             bool strict);
+
+// ssl_create_tls13_cipher_list is like |ssl_create_cipher_list| but only
+// supports TLS 1.3 cipher suites.
+bool ssl_create_preserve_tls13_cipher_list(
+    UniquePtr<SSLCipherPreferenceList> *out_cipher_list,
+    const char *rule_str, bool strict);
 
 // ssl_cipher_auth_mask_for_key returns the mask of cipher |algorithm_auth|
 // values suitable for use with |key| in TLS 1.2 and below.
@@ -1818,7 +1864,7 @@ struct SSL_HANDSHAKE {
   // key_shares are the current key exchange instances. The second is only used
   // as a client if we believe that we should offer two key shares in a
   // ClientHello.
-  UniquePtr<SSLKeyShare> key_shares[2];
+  UniquePtr<SSLKeyShare> key_shares[3];
 
   // transcript is the current handshake transcript.
   SSLTranscript transcript;
@@ -1873,6 +1919,9 @@ struct SSL_HANDSHAKE {
   // peer_delegated_credential_sigalgs are the signature algorithms the peer
   // supports with delegated credentials.
   Array<uint16_t> peer_delegated_credential_sigalgs;
+
+  Array<uint8_t> dh_p;
+  Array<uint8_t> dh_g;
 
   // peer_key is the peer's ECDH key for a TLS 1.2 client.
   Array<uint8_t> peer_key;
@@ -2131,6 +2180,10 @@ bool tls13_add_finished(SSL_HANDSHAKE *hs);
 bool tls13_process_new_session_ticket(SSL *ssl, const SSLMessage &msg);
 bssl::UniquePtr<SSL_SESSION> tls13_create_session_with_ticket(SSL *ssl,
                                                               CBS *body);
+
+// defined by the provided extension order, or falls back
+// to ssl_setup_extension_permutation otherwise.
+bool ssl_setup_extension_order(SSL_HANDSHAKE *hs);
 
 // ssl_setup_extension_permutation computes a ClientHello extension permutation
 // for |hs|, if applicable. It returns true on success and false on error.
@@ -3058,6 +3111,10 @@ struct SSL_CONFIG {
   // verify_sigalgs, if not empty, is the set of signature algorithms
   // accepted from the peer in decreasing order of preference.
   Array<uint16_t> verify_sigalgs;
+  
+  // delegated_credentials, if not empty, is the set of signature algorithms
+  // supported by the client.
+  Array<uint16_t> delegated_credentials;
 
   // srtp_profiles is the list of configured SRTP protection profiles for
   // DTLS-SRTP.
@@ -3128,6 +3185,21 @@ struct SSL_CONFIG {
   // of support for AES hw. The value is only considered if |aes_hw_override| is
   // true.
   bool aes_hw_override_value : 1;
+
+  // alps_use_new_codepoint if set indicates we use new ALPS extension codepoint
+  // to negotiate and convey application settings.
+  bool alps_use_new_codepoint : 1;
+
+  // record_size_limit is whether to send record size limit extension.
+  uint16_t record_size_limit = 0;
+
+  // key_shares_limit is the maximum number of key shares to send.
+  uint8_t key_shares_limit = 0;
+
+  // preserve_tls13_cipher_list indicates that the TLS 1.3 cipher list order should
+  // be preserved, potentially preferring ChaCha20-Poly1305 over AES-GCM ciphers.
+  // It is only effective on the client side.
+  bool preserve_tls13_cipher_list : 1;
 };
 
 // From RFC 8446, used in determining PSK modes.
@@ -3696,6 +3768,10 @@ struct ssl_ctx_st {
   // accepted from the peer in decreasing order of preference.
   bssl::Array<uint16_t> verify_sigalgs;
 
+  // delegated_credentials, if not empty, is the set of signature algorithms
+  // supported by the client.
+  bssl::Array<uint16_t> delegated_credentials;
+
   // retain_only_sha256_of_client_certs is true if we should compute the SHA256
   // hash of the peer's certificate and then discard it to save memory and
   // session space. Only effective on the server side.
@@ -3723,6 +3799,10 @@ struct ssl_ctx_st {
   // permute_extensions is whether to permute extensions when sending messages.
   bool permute_extensions : 1;
 
+  // rama_ssl_extension_order, if not empty, will use this actions
+  // as the order to be used to write the ssl extensions.
+  bssl::Array<uint16_t> extension_order;
+
   // allow_unknown_alpn_protos is whether the client allows unsolicited ALPN
   // protocols from the peer.
   bool allow_unknown_alpn_protos : 1;
@@ -3747,6 +3827,20 @@ struct ssl_ctx_st {
   // of support for AES hardware. The value is only considered if
   // |aes_hw_override| is true.
   bool aes_hw_override_value : 1;
+
+  // record_size_limit is whether to send record size limit extension.
+  uint16_t record_size_limit = 0;
+
+  // key_shares limit is the maximum number of key shares to send.
+  uint8_t key_shares_limit = 0;
+
+  // preserve_tls13_cipher_list indicates that the TLS 1.3 cipher list order should
+  // be preserved, potentially preferring ChaCha20-Poly1305 over AES-GCM ciphers.
+  // It is only effective on the client side.
+  bool preserve_tls13_cipher_list : 1;
+
+  // tls13_cipher_list, if non-null, is the list of ciphers to use in TLS 1.3
+  bssl::UniquePtr<bssl::SSLCipherPreferenceList> tls13_cipher_list;
 
  private:
   ~ssl_ctx_st();

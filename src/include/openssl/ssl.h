@@ -718,6 +718,12 @@ OPENSSL_EXPORT int SSL_version(const SSL *ssl);
 #define SSL_OP_NO_DTLSv1 SSL_OP_NO_TLSv1
 #define SSL_OP_NO_DTLSv1_2 SSL_OP_NO_TLSv1_2
 
+// SSL_OP_NO_PSK_DHE_KE disables PSK-DHE-KE.
+#define SSL_OP_NO_PSK_DHE_KE 0x40000000L
+
+// SSL_OP_NO_RENEGOTIATION disables renegotiation. This is not recommended.
+#define SSL_OP_NO_RENEGOTIATION 0x80000000L
+
 // SSL_CTX_set_options enables all options set in |options| (which should be one
 // or more of the |SSL_OP_*| values, ORed together) in |ctx|. It returns a
 // bitmask representing the resulting enabled options.
@@ -2378,6 +2384,14 @@ OPENSSL_EXPORT int SSL_set1_curves_list(SSL *ssl, const char *curves);
 #define SSL_CURVE_SECP521R1 25
 #define SSL_CURVE_X25519 29
 #define SSL_CURVE_X25519_KYBER768_DRAFT00 0x6399
+#define SSL_CURVE_X25519_KYBER512_DRAFT00 0xfe30
+#define SSL_CURVE_X25519_KYBER768_DRAFT00_OLD 0xfe31
+#define SSL_CURVE_P256_KYBER768_DRAFT00 0xfe32
+#define SSL_CURVE_X25519_MLKEM768 0x11ec
+#define SSL_CURVE_MLKEM1024 0x0202
+
+#define SSL_CURVE_DHE2048 256
+#define SSL_CURVE_DHE3072 257
 
 // SSL_get_curve_id returns the ID of the curve used by |ssl|'s most recently
 // completed handshake or 0 if not applicable.
@@ -3022,6 +3036,9 @@ OPENSSL_EXPORT void SSL_get0_peer_application_settings(const SSL *ssl,
 // connection and zero otherwise.
 OPENSSL_EXPORT int SSL_has_application_settings(const SSL *ssl);
 
+// SSL_set_alps_use_new_codepoint configures whether to use the new ALPS
+// codepoint. By default, the old codepoint is used.
+OPENSSL_EXPORT void SSL_set_alps_use_new_codepoint(SSL *ssl, int use_new);
 
 // Certificate compression.
 //
@@ -4570,6 +4587,61 @@ OPENSSL_EXPORT void SSL_CTX_set_permute_extensions(SSL_CTX *ctx, int enabled);
 // permute extensions. For now, this is only implemented for the ClientHello.
 OPENSSL_EXPORT void SSL_set_permute_extensions(SSL *ssl, int enabled);
 
+// SSL_CTX_set_extension_order configures whether sockets on |ctx|
+// should make use of the provided extensions to define the order,
+// which is similar to SSL_CTX_set_permute_extensions but in a defined
+// order instead of a random one.
+OPENSSL_EXPORT int SSL_CTX_set_extension_order(SSL_CTX *ctx, const uint16_t *ids, int num);
+
+// SSL_set_record_size_limit configures whether sockets on |ssl| should
+// send record size limit extension.
+OPENSSL_EXPORT void SSL_set_record_size_limit(SSL *ssl, uint16_t limit);
+
+// SSL_CTX_set_record_size_limit configures whether sockets on |ctx| should
+// send record size limit extension.
+OPENSSL_EXPORT void SSL_CTX_set_record_size_limit(SSL_CTX *ctx, uint16_t limit);
+
+// SSL_set_key_shares_limit configures whether sockets on |ssl| should
+// send key shares limit.
+OPENSSL_EXPORT void SSL_set_key_shares_limit(SSL *ssl, uint8_t limit);
+
+// SSL_CTX_set_key_shares_limit configures whether sockets on |ctx| should
+// send key shares limit.
+OPENSSL_EXPORT void SSL_CTX_set_key_shares_limit(SSL_CTX *ctx, uint8_t limit);
+
+
+// SSL_CTX_set_aes_hw_override sets |override_value| to
+// override checking for aes hardware support. If |override_value|
+// is set to true, the library will behave as if aes hardware support is
+// present. If it is set to false, the library will behave as if aes hardware
+// support is not present.
+OPENSSL_EXPORT void SSL_CTX_set_aes_hw_override(SSL_CTX *ctx, int override_value);
+
+// SSL_set_aes_hw_override acts the same as
+// |SSL_CTX_set_aes_override| but only configures a single |SSL*|.
+OPENSSL_EXPORT void SSL_set_aes_hw_override(SSL *ssl, int override_value);
+
+// SSL_CTX_set_preserve_tls13_cipher_list configures whether sockets on |ctx| should
+// preserve the TLS 1.3 cipher list order, retaining the original cipher suite
+// preferences. When enabled, it may prefer ChaCha20 over AES based on the
+// configured list. This is only relevant for TLS 1.3 and later, where ChaCha20
+// is not the default cipher suite.
+//
+// Note: This function must be called before |SSL_CTX_set_cipher_list| to take
+// effect.
+OPENSSL_EXPORT void SSL_CTX_set_preserve_tls13_cipher_list(SSL_CTX *ctx,
+                                                  int preserve_tls13_cipher_list);
+
+// SSL_set_preserve_tls13_cipher_list configures whether sockets on |ctx| should
+// preserve the TLS 1.3 cipher list order, retaining the original cipher suite
+// preferences. When enabled, it may prefer ChaCha20 over AES based on the
+// configured list. This is only relevant for TLS 1.3 and later, where ChaCha20
+// is not the default cipher suite.
+//
+// Note: This function must be called before |SSL_set_cipher_list| to take
+// effect.
+OPENSSL_EXPORT void SSL_set_preserve_tls13_cipher_list(SSL *ssl, int preserve_tls13_cipher_list);
+
 // SSL_max_seal_overhead returns the maximum overhead, in bytes, of sealing a
 // record with |ssl|.
 OPENSSL_EXPORT size_t SSL_max_seal_overhead(const SSL *ssl);
@@ -4874,6 +4946,10 @@ OPENSSL_EXPORT int SSL_CTX_set1_sigalgs_list(SSL_CTX *ctx, const char *str);
 // more convenient to codesearch for specific algorithm values.
 OPENSSL_EXPORT int SSL_set1_sigalgs_list(SSL *ssl, const char *str);
 
+// SSL_CTX_set_delegated_credentials sets the set of signature algorithms supported
+// by the client.
+OPENSSL_EXPORT int SSL_CTX_set_delegated_credentials(SSL_CTX *ctx, const char *str);
+
 #define SSL_set_app_data(s, arg) (SSL_set_ex_data(s, 0, (char *)(arg)))
 #define SSL_get_app_data(s) (SSL_get_ex_data(s, 0))
 #define SSL_SESSION_set_app_data(s, a) \
@@ -4926,7 +5002,6 @@ DEFINE_STACK_OF(SSL_COMP)
 #define SSL_OP_NETSCAPE_DEMO_CIPHER_CHANGE_BUG 0
 #define SSL_OP_NETSCAPE_REUSE_CIPHER_CHANGE_BUG 0
 #define SSL_OP_NO_COMPRESSION 0
-#define SSL_OP_NO_RENEGOTIATION 0  // ssl_renegotiate_never is the default
 #define SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION 0
 #define SSL_OP_NO_SSLv2 0
 #define SSL_OP_NO_SSLv3 0
@@ -5779,6 +5854,7 @@ BSSL_NAMESPACE_END
 #define SSL_R_ECH_REJECTED 319
 #define SSL_R_INVALID_OUTER_EXTENSION 320
 #define SSL_R_INCONSISTENT_ECH_NEGOTIATION 321
+#define SSL_R_INVALID_ALPS_CODEPOINT 322
 #define SSL_R_SSLV3_ALERT_CLOSE_NOTIFY 1000
 #define SSL_R_SSLV3_ALERT_UNEXPECTED_MESSAGE 1010
 #define SSL_R_SSLV3_ALERT_BAD_RECORD_MAC 1020

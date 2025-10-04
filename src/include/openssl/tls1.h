@@ -181,6 +181,8 @@ extern "C" {
 #define TLS1_AD_NO_APPLICATION_PROTOCOL 120
 #define TLS1_AD_ECH_REQUIRED 121  // draft-ietf-tls-esni-13
 
+#define TLSEXT_TYPE_record_size_limit 28
+
 // ExtensionType values from RFC 6066
 #define TLSEXT_TYPE_server_name 0
 #define TLSEXT_TYPE_status_request 5
@@ -245,6 +247,7 @@ extern "C" {
 // ExtensionType value from draft-vvv-tls-alps. This is not an IANA defined
 // extension number.
 #define TLSEXT_TYPE_application_settings 17513
+#define TLSEXT_TYPE_application_settings_new 17613
 
 // ExtensionType values from draft-ietf-tls-esni-13. This is not an IANA defined
 // extension number.
@@ -286,6 +289,7 @@ extern "C" {
 // From https://www.rfc-editor.org/rfc/rfc8879.html#section-3
 #define TLSEXT_cert_compression_zlib 1
 #define TLSEXT_cert_compression_brotli 2
+#define TLSEXT_cert_compression_zstd 3
 
 #define TLSEXT_MAXLEN_host_name 255
 

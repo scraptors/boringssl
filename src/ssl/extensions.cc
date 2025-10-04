@@ -207,6 +207,7 @@ static bool tls1_check_duplicate_extensions(const CBS *cbs) {
 static bool is_post_quantum_group(uint16_t id) {
   switch (id) {
     case SSL_CURVE_X25519_KYBER768_DRAFT00:
+    case SSL_CURVE_MLKEM1024:
       return true;
     default:
       return false;
@@ -752,7 +753,8 @@ static bool ext_ri_add_clienthello(const SSL_HANDSHAKE *hs, CBB *out,
   const SSL *const ssl = hs->ssl;
   // Renegotiation indication is not necessary in TLS 1.3.
   if (hs->min_version >= TLS1_3_VERSION ||
-     type == ssl_client_hello_inner) {
+     type == ssl_client_hello_inner ||
+     (SSL_get_options(hs->ssl) & SSL_OP_NO_RENEGOTIATION)) {
     return true;
   }
 
@@ -2125,7 +2127,7 @@ bool ssl_ext_pre_shared_key_add_serverhello(SSL_HANDSHAKE *hs, CBB *out) {
 static bool ext_psk_key_exchange_modes_add_clienthello(
     const SSL_HANDSHAKE *hs, CBB *out, CBB *out_compressible,
     ssl_client_hello_type_t type) {
-  if (hs->max_version < TLS1_3_VERSION) {
+  if (hs->max_version < TLS1_3_VERSION || (SSL_get_options(hs->ssl) & SSL_OP_NO_PSK_DHE_KE)) {
     return true;
   }
 
@@ -2273,7 +2275,15 @@ bool ssl_setup_key_shares(SSL_HANDSHAKE *hs, uint16_t override_group_id) {
   SSL *const ssl = hs->ssl;
   hs->key_shares[0].reset();
   hs->key_shares[1].reset();
+  hs->key_shares[2].reset();
   hs->key_share_bytes.Reset();
+  // If key_shares_limit is set, use it. Otherwise, use the default of 2.
+  const uint8_t key_shares_limit = hs->ssl->config->key_shares_limit;
+  // The key_shares_limit is set by the user, so it is a custom value.
+  const bool is_custom = key_shares_limit != 0;
+  const uint8_t limit = (key_shares_limit >= 1 && key_shares_limit <= 3) ? key_shares_limit : 2;
+  const bool enable_second_key_share = (limit >= 2);
+  const bool enable_three_key_shares = (limit >= 3);
 
   if (hs->max_version < TLS1_3_VERSION) {
     return true;
@@ -2295,6 +2305,7 @@ bool ssl_setup_key_shares(SSL_HANDSHAKE *hs, uint16_t override_group_id) {
 
   uint16_t group_id = override_group_id;
   uint16_t second_group_id = 0;
+  uint16_t third_group_id = 0;
   if (override_group_id == 0) {
     // Predict the most preferred group.
     Span<const uint16_t> groups = tls1_get_grouplist(hs);
@@ -2305,12 +2316,14 @@ bool ssl_setup_key_shares(SSL_HANDSHAKE *hs, uint16_t override_group_id) {
 
     group_id = groups[0];
 
-    // We'll try to include one post-quantum and one classical initial key
-    // share.
-    for (size_t i = 1; i < groups.size() && second_group_id == 0; i++) {
-      if (is_post_quantum_group(group_id) != is_post_quantum_group(groups[i])) {
+    // Include one post-quantum and one classical initial key share.
+    for (size_t i = 1; i < groups.size(); i++) {
+      if (enable_second_key_share && second_group_id == 0 && (is_custom || (is_post_quantum_group(group_id) != is_post_quantum_group(groups[i])))) {
         second_group_id = groups[i];
         assert(second_group_id != group_id);
+      } else if (enable_three_key_shares && third_group_id == 0 && 
+                 (is_custom || is_post_quantum_group(group_id) != is_post_quantum_group(groups[i]))) {
+        third_group_id = groups[i];
       }
     }
   }
@@ -2330,6 +2343,16 @@ bool ssl_setup_key_shares(SSL_HANDSHAKE *hs, uint16_t override_group_id) {
         !CBB_add_u16(cbb.get(), second_group_id) ||
         !CBB_add_u16_length_prefixed(cbb.get(), &key_exchange) ||
         !hs->key_shares[1]->Generate(&key_exchange)) {
+      return false;
+    }
+  }
+
+  if (third_group_id != 0) {
+    hs->key_shares[2] = SSLKeyShare::Create(third_group_id);
+    if (!hs->key_shares[2] ||  //
+        !CBB_add_u16(cbb.get(), third_group_id) ||
+        !CBB_add_u16_length_prefixed(cbb.get(), &key_exchange) ||
+        !hs->key_shares[2]->Generate(&key_exchange)) {
       return false;
     }
   }
@@ -2372,13 +2395,20 @@ bool ssl_ext_key_share_parse_serverhello(SSL_HANDSHAKE *hs,
   }
 
   SSLKeyShare *key_share = hs->key_shares[0].get();
+  // group_id is the server chosen group_id, and if key_share[0] is not chosen
   if (key_share->GroupID() != group_id) {
+    // the server also did not choose the second one
     if (!hs->key_shares[1] || hs->key_shares[1]->GroupID() != group_id) {
-      *out_alert = SSL_AD_ILLEGAL_PARAMETER;
-      OPENSSL_PUT_ERROR(SSL, SSL_R_WRONG_CURVE);
-      return false;
+      // the server also did not choose the third one, we are out of options
+      if (!hs->key_shares[2] || hs->key_shares[2]->GroupID() != group_id) {
+        *out_alert = SSL_AD_ILLEGAL_PARAMETER;
+        OPENSSL_PUT_ERROR(SSL, SSL_R_WRONG_CURVE);
+        return false;
+      }
+      key_share = hs->key_shares[2].get();  // choose the third one
+    } else {
+      key_share = hs->key_shares[1].get();  // choose the second one
     }
-    key_share = hs->key_shares[1].get();
   }
 
   if (!key_share->Decap(out_secret, out_alert, ciphertext)) {
@@ -2389,6 +2419,7 @@ bool ssl_ext_key_share_parse_serverhello(SSL_HANDSHAKE *hs,
   hs->new_session->group_id = group_id;
   hs->key_shares[0].reset();
   hs->key_shares[1].reset();
+  hs->key_shares[2].reset();
   return true;
 }
 
@@ -2808,6 +2839,27 @@ static bool ext_quic_transport_params_add_serverhello_legacy(SSL_HANDSHAKE *hs,
 static bool ext_delegated_credential_add_clienthello(
     const SSL_HANDSHAKE *hs, CBB *out, CBB *out_compressible,
     ssl_client_hello_type_t type) {
+  if (hs->config->delegated_credentials.empty()) {
+      return true;
+  }
+
+  CBB contents, data;
+  const Array<uint16_t>& signature_hash_algorithms = hs->config->delegated_credentials;
+  if (!CBB_add_u16(out, TLSEXT_TYPE_delegated_credential) ||
+          !CBB_add_u16_length_prefixed(out, &contents) ||
+          !CBB_add_u16_length_prefixed(&contents, &data)) {
+      return false;
+  }
+  
+  for (const uint16_t alg : signature_hash_algorithms) {
+      if (!CBB_add_u16(&data, alg)) {
+          return false;
+      }
+  }
+  if (!CBB_flush(out)) {
+      return false;
+  }
+
   return true;
 }
 
@@ -2957,9 +3009,10 @@ bool ssl_get_local_application_settings(const SSL_HANDSHAKE *hs,
   return false;
 }
 
-static bool ext_alps_add_clienthello(const SSL_HANDSHAKE *hs, CBB *out,
-                                     CBB *out_compressible,
-                                     ssl_client_hello_type_t type) {
+static bool ext_alps_add_clienthello_impl(const SSL_HANDSHAKE *hs, CBB *out,
+                                          CBB *out_compressible,
+                                          ssl_client_hello_type_t type,
+                                          bool use_new_codepoint) {
   const SSL *const ssl = hs->ssl;
   if (// ALPS requires TLS 1.3.
       hs->max_version < TLS1_3_VERSION ||
@@ -2972,8 +3025,18 @@ static bool ext_alps_add_clienthello(const SSL_HANDSHAKE *hs, CBB *out,
     return true;
   }
 
+  if (use_new_codepoint != hs->config->alps_use_new_codepoint) {
+    // Do nothing, we'll send the other codepoint.
+    return true;
+  }
+
+  uint16_t extension_type = TLSEXT_TYPE_application_settings;
+  if (hs->config->alps_use_new_codepoint) {
+    extension_type = TLSEXT_TYPE_application_settings_new;
+  }
+
   CBB contents, proto_list, proto;
-  if (!CBB_add_u16(out_compressible, TLSEXT_TYPE_application_settings) ||
+  if (!CBB_add_u16(out_compressible, extension_type) ||
       !CBB_add_u16_length_prefixed(out_compressible, &contents) ||
       !CBB_add_u16_length_prefixed(&contents, &proto_list)) {
     return false;
@@ -2990,8 +3053,24 @@ static bool ext_alps_add_clienthello(const SSL_HANDSHAKE *hs, CBB *out,
   return CBB_flush(out_compressible);
 }
 
-static bool ext_alps_parse_serverhello(SSL_HANDSHAKE *hs, uint8_t *out_alert,
-                                       CBS *contents) {
+static bool ext_alps_add_clienthello_new(const SSL_HANDSHAKE *hs, CBB *out,
+                                     CBB *out_compressible,
+                                     ssl_client_hello_type_t type) {
+  return ext_alps_add_clienthello_impl(hs, out, out_compressible, type,
+                                       /*use_new_codepoint=*/true);
+}
+
+static bool ext_alps_add_clienthello(const SSL_HANDSHAKE *hs, CBB *out,
+                                     CBB *out_compressible,
+                                     ssl_client_hello_type_t type) {
+  return ext_alps_add_clienthello_impl(hs, out, out_compressible, type,
+                                       /*use_new_codepoint=*/false);
+}
+
+static bool ext_alps_parse_serverhello_impl(SSL_HANDSHAKE *hs,
+                                            uint8_t *out_alert,
+                                            CBS *contents,
+                                            bool use_new_codepoint) {
   SSL *const ssl = hs->ssl;
   if (contents == nullptr) {
     return true;
@@ -3000,6 +3079,7 @@ static bool ext_alps_parse_serverhello(SSL_HANDSHAKE *hs, uint8_t *out_alert,
   assert(!ssl->s3->initial_handshake_complete);
   assert(!hs->config->alpn_client_proto_list.empty());
   assert(!hs->config->alps_configs.empty());
+  assert(use_new_codepoint == hs->config->alps_use_new_codepoint);
 
   // ALPS requires TLS 1.3.
   if (ssl_protocol_version(ssl) < TLS1_3_VERSION) {
@@ -3019,7 +3099,21 @@ static bool ext_alps_parse_serverhello(SSL_HANDSHAKE *hs, uint8_t *out_alert,
   return true;
 }
 
-static bool ext_alps_add_serverhello(SSL_HANDSHAKE *hs, CBB *out) {
+static bool ext_alps_parse_serverhello_new(SSL_HANDSHAKE *hs,
+                                           uint8_t *out_alert,
+                                           CBS *contents) {
+  return ext_alps_parse_serverhello_impl(hs, out_alert, contents,
+                                         /*use_new_codepoint=*/true);
+}
+
+static bool ext_alps_parse_serverhello(SSL_HANDSHAKE *hs, uint8_t *out_alert,
+                                       CBS *contents) {
+  return ext_alps_parse_serverhello_impl(hs, out_alert, contents,
+                                         /*use_new_codepoint=*/false);
+}
+
+static bool ext_alps_add_serverhello_impl(SSL_HANDSHAKE *hs, CBB *out,
+                                          bool use_new_codepoint) {
   SSL *const ssl = hs->ssl;
   // If early data is accepted, we omit the ALPS extension. It is implicitly
   // carried over from the previous connection.
@@ -3029,8 +3123,18 @@ static bool ext_alps_add_serverhello(SSL_HANDSHAKE *hs, CBB *out) {
     return true;
   }
 
+  if (use_new_codepoint != hs->config->alps_use_new_codepoint) {
+    // Do nothing, we'll send the other codepoint.
+    return true;
+  }
+
+  uint16_t extension_type = TLSEXT_TYPE_application_settings;
+  if (hs->config->alps_use_new_codepoint) {
+    extension_type = TLSEXT_TYPE_application_settings_new;
+  }
+
   CBB contents;
-  if (!CBB_add_u16(out, TLSEXT_TYPE_application_settings) ||
+  if (!CBB_add_u16(out, extension_type) ||
       !CBB_add_u16_length_prefixed(out, &contents) ||
       !CBB_add_bytes(&contents,
                      hs->new_session->local_application_settings.data(),
@@ -3040,6 +3144,14 @@ static bool ext_alps_add_serverhello(SSL_HANDSHAKE *hs, CBB *out) {
   }
 
   return true;
+}
+
+static bool ext_alps_add_serverhello_new(SSL_HANDSHAKE *hs, CBB *out) {
+  return ext_alps_add_serverhello_impl(hs, out, /*use_new_codepoint=*/true);
+}
+
+static bool ext_alps_add_serverhello(SSL_HANDSHAKE *hs, CBB *out) {
+  return ext_alps_add_serverhello_impl(hs, out, /*use_new_codepoint=*/false);
 }
 
 bool ssl_negotiate_alps(SSL_HANDSHAKE *hs, uint8_t *out_alert,
@@ -3052,11 +3164,15 @@ bool ssl_negotiate_alps(SSL_HANDSHAKE *hs, uint8_t *out_alert,
   // If we negotiate ALPN over TLS 1.3, try to negotiate ALPS.
   CBS alps_contents;
   Span<const uint8_t> settings;
+  uint16_t extension_type = TLSEXT_TYPE_application_settings;
+  if (hs->config->alps_use_new_codepoint) {
+    extension_type = TLSEXT_TYPE_application_settings_new;
+  }
   if (ssl_protocol_version(ssl) >= TLS1_3_VERSION &&
       ssl_get_local_application_settings(hs, &settings,
                                          ssl->s3->alpn_selected) &&
       ssl_client_hello_get_extension(client_hello, &alps_contents,
-                                     TLSEXT_TYPE_application_settings)) {
+                                     extension_type)) {
     // Check if the client supports ALPS with the selected ALPN.
     bool found = false;
     CBS alps_list;
@@ -3092,6 +3208,39 @@ bool ssl_negotiate_alps(SSL_HANDSHAKE *hs, uint8_t *out_alert,
   }
 
   return true;
+}
+
+static bool record_size_limit_add_clienthello(const SSL_HANDSHAKE* hs, CBB* out,
+    CBB* out_compressible,
+    ssl_client_hello_type_t type) {
+    if (hs->config->record_size_limit == 0) {
+        return true;
+    }
+
+    CBB data;
+    const uint16_t data_ = hs->config->record_size_limit;
+    if (!CBB_add_u16(out, TLSEXT_TYPE_record_size_limit) ||
+        !CBB_add_u16_length_prefixed(out, &data) || !CBB_add_u16(&data, data_) ||
+        !CBB_flush(out)) {
+        return false;
+    }
+    return true;
+  }
+
+static bool record_size_limit_parse_serverhello(SSL_HANDSHAKE* hs,
+    uint8_t* out_alert,
+    CBS* contents) {
+    return true;
+}
+
+static bool record_size_limit_parse_clienthello(SSL_HANDSHAKE* hs,
+    uint8_t* out_alert,
+    CBS* contents) {
+    return true;
+}
+
+static bool record_size_limit_add_serverhello(SSL_HANDSHAKE* hs, CBB* out) {
+    return true;
 }
 
 // kExtensions contains all the supported extensions.
@@ -3267,6 +3416,21 @@ static const struct tls_extension kExtensions[] = {
     ignore_parse_clienthello,
     ext_alps_add_serverhello,
   },
+  {
+    TLSEXT_TYPE_application_settings_new,
+    ext_alps_add_clienthello_new,
+    ext_alps_parse_serverhello_new,
+    // ALPS is negotiated late in |ssl_negotiate_alpn|.
+    ignore_parse_clienthello,
+    ext_alps_add_serverhello_new,
+  },
+  {
+    TLSEXT_TYPE_record_size_limit,
+    record_size_limit_add_clienthello,
+    record_size_limit_parse_serverhello,
+    record_size_limit_parse_clienthello,
+    record_size_limit_add_serverhello,
+  },
 };
 
 #define kNumExtensions (sizeof(kExtensions) / sizeof(struct tls_extension))
@@ -3277,6 +3441,74 @@ static_assert(kNumExtensions <=
 static_assert(kNumExtensions <=
                   sizeof(((SSL_HANDSHAKE *)NULL)->extensions.received) * 8,
               "too many extensions for received bitset");
+
+bool ssl_setup_extension_order(SSL_HANDSHAKE *hs) {
+    SSL *const ssl = hs->ssl;
+    if (ssl->ctx->extension_order.empty()) {
+        return ssl_setup_extension_permutation(hs);
+    }
+
+    static_assert(kNumExtensions <= UINT8_MAX,
+                  "extensions_permutation type is too small");
+    Array<uint8_t> permutation;
+    if (!permutation.Init(kNumExtensions)) {
+      return false;
+    }
+
+    bool seen[kNumExtensions] = {0};
+    int permIndex = 0;
+
+    for (uint16_t id : ssl->ctx->extension_order) {
+        size_t j;
+        for (j = 0; j < kNumExtensions; j++) {
+            if (kExtensions[j].value == id) {
+                break;
+            }
+        }
+        if (j == kNumExtensions || seen[j]) {
+            continue;  // Skip unknown or duplicate entries
+        }
+        seen[j] = true;
+        permutation[permIndex++] = j;
+    }
+
+    size_t rem = kNumExtensions - permIndex;
+    if (rem == 0) {
+        hs->extension_permutation = std::move(permutation);
+        return true;
+    }
+
+    size_t offset = permIndex;
+    for (size_t i = 0; i < kNumExtensions; i++) {
+        if (seen[i]) {
+            continue; // skip duplicate entries
+        }
+        seen[i] = true;
+        permutation[permIndex++] = i;
+    }
+
+    if (rem > 1) {
+        size_t seeds_num = rem - 1;
+        uint32_t *seeds = static_cast<uint32_t *>(OPENSSL_malloc(seeds_num * sizeof(uint32_t)));
+        if (!seeds) {
+            permutation.Reset();
+            return false;
+        }
+        if (!RAND_bytes(reinterpret_cast<uint8_t *>(seeds), seeds_num * sizeof(uint32_t))) {
+            permutation.Reset();
+            OPENSSL_free(seeds);
+            return false;
+        }
+        for (size_t i = kNumExtensions - 1; i > offset; i--) {
+            size_t swap_idx = offset + (seeds[i - offset] % (i - offset));
+            std::swap(permutation[i], permutation[swap_idx]);
+        }
+        OPENSSL_free(seeds);
+    }
+
+    hs->extension_permutation = std::move(permutation);
+    return true;
+}
 
 bool ssl_setup_extension_permutation(SSL_HANDSHAKE *hs) {
   if (!hs->config->permute_extensions) {

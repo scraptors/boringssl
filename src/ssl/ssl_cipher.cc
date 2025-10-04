@@ -175,26 +175,106 @@ static constexpr SSL_CIPHER kCiphers[] = {
 
     // Cipher 2F
     {
-     TLS1_TXT_RSA_WITH_AES_128_SHA,
-     "TLS_RSA_WITH_AES_128_CBC_SHA",
-     TLS1_CK_RSA_WITH_AES_128_SHA,
-     SSL_kRSA,
-     SSL_aRSA,
-     SSL_AES128,
-     SSL_SHA1,
-     SSL_HANDSHAKE_MAC_DEFAULT,
+        TLS1_TXT_RSA_WITH_AES_128_SHA,
+        "TLS_RSA_WITH_AES_128_CBC_SHA",
+        TLS1_CK_RSA_WITH_AES_128_SHA,
+        SSL_kRSA,
+        SSL_aRSA,
+        SSL_AES128,
+        SSL_SHA1,
+        SSL_HANDSHAKE_MAC_DEFAULT,
+    },
+
+    // Cipher 33
+    {
+        TLS1_TXT_DHE_RSA_WITH_AES_128_SHA,
+        "TLS_DHE_RSA_WITH_AES_128_CBC_SHA",
+        TLS1_CK_DHE_RSA_WITH_AES_128_SHA,
+        SSL_kDHE,
+        SSL_aRSA,
+        SSL_AES128,
+        SSL_SHA1,
+        SSL_HANDSHAKE_MAC_DEFAULT,
     },
 
     // Cipher 35
     {
-     TLS1_TXT_RSA_WITH_AES_256_SHA,
-     "TLS_RSA_WITH_AES_256_CBC_SHA",
-     TLS1_CK_RSA_WITH_AES_256_SHA,
+        TLS1_TXT_RSA_WITH_AES_256_SHA,
+        "TLS_RSA_WITH_AES_256_CBC_SHA",
+        TLS1_CK_RSA_WITH_AES_256_SHA,
+        SSL_kRSA,
+        SSL_aRSA,
+        SSL_AES256,
+        SSL_SHA1,
+        SSL_HANDSHAKE_MAC_DEFAULT,
+    },
+
+    // Cipher 39
+    {
+        TLS1_TXT_DHE_RSA_WITH_AES_256_SHA,
+        "TLS_DHE_RSA_WITH_AES_256_CBC_SHA",
+        TLS1_CK_DHE_RSA_WITH_AES_256_SHA,
+        SSL_kDHE,
+        SSL_aRSA,
+        SSL_AES256,
+        SSL_SHA1,
+        SSL_HANDSHAKE_MAC_DEFAULT,
+    },
+
+    //  Ciphers 3C, 3D were removed in
+    // https://boringssl-review.googlesource.com/c/boringssl/+/27944/
+    // but restored here to impersonate browsers with older ciphers. They are
+    // not expected to actually work; but just to be included in the TLS
+    // Client Hello.
+ 
+    // TLS v1.2 ciphersuites
+ 
+    // Cipher 3C
+    {
+     TLS1_TXT_RSA_WITH_AES_128_SHA256,
+     "TLS_RSA_WITH_AES_128_CBC_SHA256",
+     TLS1_CK_RSA_WITH_AES_128_SHA256,
+     SSL_kRSA,
+     SSL_aRSA,
+     SSL_AES128,
+     SSL_SHA256,
+     SSL_HANDSHAKE_MAC_SHA256,
+    },
+
+    // Cipher 3D
+    {
+     TLS1_TXT_RSA_WITH_AES_256_SHA256,
+     "TLS_RSA_WITH_AES_256_CBC_SHA256",
+     TLS1_CK_RSA_WITH_AES_256_SHA256,
      SSL_kRSA,
      SSL_aRSA,
      SSL_AES256,
-     SSL_SHA1,
-     SSL_HANDSHAKE_MAC_DEFAULT,
+     SSL_SHA256,
+     SSL_HANDSHAKE_MAC_SHA256,
+    },
+
+    // Cipher 67
+    {
+        TLS1_TXT_DHE_RSA_WITH_AES_128_SHA256,
+        "TLS_DHE_RSA_WITH_AES_128_CBC_SHA256",
+        TLS1_CK_DHE_RSA_WITH_AES_128_SHA256,
+        SSL_kDHE,
+        SSL_aRSA,
+        SSL_AES128,
+        SSL_SHA256,
+        SSL_HANDSHAKE_MAC_SHA256,
+    },
+
+    // Cipher 6B
+    {
+        TLS1_TXT_DHE_RSA_WITH_AES_256_SHA256,
+        "TLS_DHE_RSA_WITH_AES_256_CBC_SHA256",
+        TLS1_CK_DHE_RSA_WITH_AES_256_SHA256,
+        SSL_kDHE,
+        SSL_aRSA,
+        SSL_AES256,
+        SSL_SHA256,
+        SSL_HANDSHAKE_MAC_SHA256,
     },
 
     // PSK cipher suites.
@@ -249,6 +329,30 @@ static constexpr SSL_CIPHER kCiphers[] = {
      SSL_HANDSHAKE_MAC_SHA384,
     },
 
+    // Cipher 9E
+    {
+        TLS1_TXT_DHE_RSA_WITH_AES_128_GCM_SHA256,
+        "TLS_DHE_RSA_WITH_AES_128_GCM_SHA256",
+        TLS1_CK_DHE_RSA_WITH_AES_128_GCM_SHA256,
+        SSL_kDHE,
+        SSL_aRSA,
+        SSL_AES128GCM,
+        SSL_AEAD,
+        SSL_HANDSHAKE_MAC_SHA256,
+    },
+
+    // Cipher 9F
+    {
+        TLS1_TXT_DHE_RSA_WITH_AES_256_GCM_SHA384,
+        "TLS_DHE_RSA_WITH_AES_256_GCM_SHA384",
+        TLS1_CK_DHE_RSA_WITH_AES_256_GCM_SHA384,
+        SSL_kDHE,
+        SSL_aRSA,
+        SSL_AES256GCM,
+        SSL_AEAD,
+        SSL_HANDSHAKE_MAC_SHA384,
+    },
+
     // TLS 1.3 suites.
 
     // Cipher 1301
@@ -287,6 +391,23 @@ static constexpr SSL_CIPHER kCiphers[] = {
       SSL_HANDSHAKE_MAC_SHA256,
     },
 
+    //  Cipher C008 was missing from BoringSSL,
+    // probably because it is weak. Add it back from OpenSSL (ssl/s3_lib.c)
+    // where it is called ECDHE-ECDSA-DES-CBC3-SHA.
+    // It's not supposed to really work but just appear in the TLS client hello.
+ 
+    // Cipher C008
+    {
+        TLS1_TXT_ECDHE_ECDSA_WITH_DES_192_CBC3_SHA,
+        "TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA",
+        TLS1_CK_ECDHE_ECDSA_WITH_DES_192_CBC3_SHA,
+        SSL_kECDHE,
+        SSL_aECDSA,
+        SSL_3DES,
+        SSL_SHA1,
+        SSL_HANDSHAKE_MAC_DEFAULT,
+    },
+
     // Cipher C009
     {
      TLS1_TXT_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
@@ -309,6 +430,21 @@ static constexpr SSL_CIPHER kCiphers[] = {
      SSL_AES256,
      SSL_SHA1,
      SSL_HANDSHAKE_MAC_DEFAULT,
+    },
+
+    //  Cipher C012 was missing from BoringSSL,
+    // probably because it is weak. Add it back from OpenSSL (ssl/s3_lib.c)
+    // where it is called ECDHE-RSA-DES-CBC3-SHA
+    // It's not supposed to really work but just appear in the TLS client hello.
+    {
+        TLS1_TXT_ECDHE_RSA_WITH_DES_192_CBC3_SHA,
+        "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA",
+        TLS1_CK_ECDHE_RSA_WITH_DES_192_CBC3_SHA,
+        SSL_kECDHE,
+        SSL_aRSA,
+        SSL_3DES,
+        SSL_SHA1,
+        SSL_HANDSHAKE_MAC_DEFAULT,
     },
 
     // Cipher C013
@@ -335,6 +471,38 @@ static constexpr SSL_CIPHER kCiphers[] = {
      SSL_HANDSHAKE_MAC_DEFAULT,
     },
 
+    //  Ciphers C023, C024, C028 were removed in
+    // https://boringssl-review.googlesource.com/c/boringssl/+/27944/
+    // but restored here to impersonate browsers with older ciphers. They are
+    // not expected to actually work; but just to be included in the TLS
+    // Client Hello.
+
+    // HMAC based TLS v1.2 ciphersuites from RFC5289
+
+    // Cipher C023
+    {
+     TLS1_TXT_ECDHE_ECDSA_WITH_AES_128_SHA256,
+     "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256",
+     TLS1_CK_ECDHE_ECDSA_WITH_AES_128_SHA256,
+     SSL_kECDHE,
+     SSL_aECDSA,
+     SSL_AES128,
+     SSL_SHA256,
+     SSL_HANDSHAKE_MAC_SHA256,
+    },
+
+    // Cipher C024
+    {
+     TLS1_TXT_ECDHE_ECDSA_WITH_AES_256_SHA384,
+     "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384",
+     TLS1_CK_ECDHE_ECDSA_WITH_AES_256_SHA384,
+     SSL_kECDHE,
+     SSL_aECDSA,
+     SSL_AES256,
+     SSL_SHA384,
+     SSL_HANDSHAKE_MAC_SHA384,
+    },
+
     // Cipher C027
     {
      TLS1_TXT_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
@@ -345,6 +513,18 @@ static constexpr SSL_CIPHER kCiphers[] = {
      SSL_AES128,
      SSL_SHA256,
      SSL_HANDSHAKE_MAC_SHA256,
+    },
+
+    // Cipher C028
+    {
+     TLS1_TXT_ECDHE_RSA_WITH_AES_256_SHA384,
+     "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384",
+     TLS1_CK_ECDHE_RSA_WITH_AES_256_SHA384,
+     SSL_kECDHE,
+     SSL_aRSA,
+     SSL_AES256,
+     SSL_SHA384,
+     SSL_HANDSHAKE_MAC_SHA384,
     },
 
     // GCM based TLS v1.2 ciphersuites from RFC 5289
@@ -550,6 +730,10 @@ static const CIPHER_ALIAS kCipherAliases[] = {
     // MAC aliases
     {"SHA1", ~0u, ~0u, ~0u, SSL_SHA1, 0},
     {"SHA", ~0u, ~0u, ~0u, SSL_SHA1, 0},
+    // Removed in https://boringssl-review.googlesource.com/c/boringssl/+/27944/
+    // but restored to impersonate browsers with older ciphers.
+    {"SHA256", ~0u, ~0u, ~0u, SSL_SHA256, 0},
+    {"SHA384", ~0u, ~0u, ~0u, SSL_SHA384, 0},
 
     // Legacy protocol minimum version aliases. "TLSv1" is intentionally the
     // same as "SSLv3".
@@ -641,11 +825,19 @@ bool ssl_cipher_get_evp_aead(const EVP_AEAD **out_aead,
   } else if (cipher->algorithm_mac == SSL_SHA256) {
     if (cipher->algorithm_enc == SSL_AES128) {
       *out_aead = EVP_aead_aes_128_cbc_sha256_tls();
+    } else if (cipher->algorithm_enc == SSL_AES256) {
+      *out_aead = EVP_aead_aes_256_cbc_sha256_tls();
     } else {
       return false;
     }
 
     *out_mac_secret_len = SHA256_DIGEST_LENGTH;
+  } else if (cipher->algorithm_mac == SSL_SHA384) {
+    if (cipher->algorithm_enc != SSL_AES256) {
+      return false;
+    }
+    *out_aead = EVP_aead_aes_256_cbc_sha384_tls();
+    *out_mac_secret_len = SHA384_DIGEST_LENGTH;
   } else {
     return false;
   }
@@ -1129,6 +1321,71 @@ static bool ssl_cipher_process_rulestr(const char *rule_str,
   return true;
 }
 
+bool ssl_create_preserve_tls13_cipher_list(UniquePtr<SSLCipherPreferenceList> *out_cipher_list,
+                                  const char *rule_str, bool strict) {
+  if (rule_str == NULL || out_cipher_list == NULL) {
+    return false;
+  }
+
+  // TLS 1.3-only ciphers.
+  static const uint16_t kAESTLS13OnlyCiphers[] = {
+      TLS1_3_CK_AES_128_GCM_SHA256 & 0xffff,
+      TLS1_3_CK_AES_256_GCM_SHA384 & 0xffff,
+      TLS1_3_CK_CHACHA20_POLY1305_SHA256 & 0xffff,
+  };
+
+  // Set up a linked list of ciphers.
+  CIPHER_ORDER co_list[OPENSSL_ARRAY_SIZE(kAESTLS13OnlyCiphers)];
+  for (size_t i = 0; i < OPENSSL_ARRAY_SIZE(co_list); i++) {
+    co_list[i].next = i + 1 < OPENSSL_ARRAY_SIZE(co_list) ? &co_list[i + 1] : nullptr;
+    co_list[i].prev = i == 0 ? nullptr : &co_list[i - 1];
+    co_list[i].active = false;  // Do not pre-activate
+    co_list[i].in_group = false;
+  }
+  CIPHER_ORDER *head = &co_list[0];
+  CIPHER_ORDER *tail = &co_list[OPENSSL_ARRAY_SIZE(co_list) - 1];
+
+  // Add TLS 1.3 ciphers to the list (but do not activate yet).
+  size_t num = 0;
+  for (uint16_t id : kAESTLS13OnlyCiphers) {
+    co_list[num++].cipher = SSL_get_cipher_by_value(id);
+    assert(co_list[num - 1].cipher != nullptr);
+    // Removed: co_list[num - 1].active = true;
+  }
+  assert(num == OPENSSL_ARRAY_SIZE(co_list));
+
+  // Apply rule_str to activate and order the ciphers.
+  if (!ssl_cipher_process_rulestr(rule_str, &head, &tail, strict)) {
+    return false;
+  }
+
+  // Allocate new "cipherstack" for the result.
+  UniquePtr<STACK_OF(SSL_CIPHER)> cipherstack(sk_SSL_CIPHER_new_null());
+  Array<bool> in_group_flags;
+  if (cipherstack == nullptr || !in_group_flags.Init(OPENSSL_ARRAY_SIZE(kAESTLS13OnlyCiphers))) {
+    return false;
+  }
+
+  // Add active ciphers to the stack in the order after applying rules.
+  size_t num_in_group_flags = 0;
+  for (CIPHER_ORDER *curr = head; curr != NULL; curr = curr->next) {
+    if (curr->active) {
+      if (!sk_SSL_CIPHER_push(cipherstack.get(), curr->cipher)) {
+        return false;
+      }
+      in_group_flags[num_in_group_flags++] = curr->in_group;
+    }
+  }
+
+  UniquePtr<SSLCipherPreferenceList> pref_list = MakeUnique<SSLCipherPreferenceList>();
+  if (!pref_list || !pref_list->Init(std::move(cipherstack), MakeConstSpan(in_group_flags).subspan(0, num_in_group_flags))) {
+    return false;
+  }
+
+  *out_cipher_list = std::move(pref_list);
+  return true;
+}
+
 bool ssl_create_cipher_list(UniquePtr<SSLCipherPreferenceList> *out_cipher_list,
                             const bool has_aes_hw, const char *rule_str,
                             bool strict) {
@@ -1152,13 +1409,20 @@ bool ssl_create_cipher_list(UniquePtr<SSLCipherPreferenceList> *out_cipher_list,
       TLS1_CK_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256 & 0xffff,
   };
   static const uint16_t kLegacyCiphers[] = {
+      TLS1_CK_RSA_WITH_AES_128_SHA256 & 0xffff,
+      TLS1_CK_RSA_WITH_AES_256_SHA256 & 0xffff,
+      TLS1_CK_ECDHE_ECDSA_WITH_DES_192_CBC3_SHA & 0xffff,
+      TLS1_CK_ECDHE_RSA_WITH_DES_192_CBC3_SHA & 0xffff,
       TLS1_CK_ECDHE_ECDSA_WITH_AES_128_CBC_SHA & 0xffff,
       TLS1_CK_ECDHE_RSA_WITH_AES_128_CBC_SHA & 0xffff,
       TLS1_CK_ECDHE_PSK_WITH_AES_128_CBC_SHA & 0xffff,
       TLS1_CK_ECDHE_ECDSA_WITH_AES_256_CBC_SHA & 0xffff,
       TLS1_CK_ECDHE_RSA_WITH_AES_256_CBC_SHA & 0xffff,
       TLS1_CK_ECDHE_PSK_WITH_AES_256_CBC_SHA & 0xffff,
+      TLS1_CK_ECDHE_ECDSA_WITH_AES_128_SHA256 & 0xffff,
+      TLS1_CK_ECDHE_ECDSA_WITH_AES_256_SHA384 & 0xffff,
       TLS1_CK_ECDHE_RSA_WITH_AES_128_CBC_SHA256 & 0xffff,
+      TLS1_CK_ECDHE_RSA_WITH_AES_256_SHA384 & 0xffff,
       TLS1_CK_RSA_WITH_AES_128_GCM_SHA256 & 0xffff,
       TLS1_CK_RSA_WITH_AES_256_GCM_SHA384 & 0xffff,
       TLS1_CK_RSA_WITH_AES_128_SHA & 0xffff,
@@ -1166,6 +1430,12 @@ bool ssl_create_cipher_list(UniquePtr<SSLCipherPreferenceList> *out_cipher_list,
       TLS1_CK_RSA_WITH_AES_256_SHA & 0xffff,
       TLS1_CK_PSK_WITH_AES_256_CBC_SHA & 0xffff,
       SSL3_CK_RSA_DES_192_CBC3_SHA & 0xffff,
+      TLS1_CK_DHE_RSA_WITH_AES_128_SHA & 0xffff,
+      TLS1_CK_DHE_RSA_WITH_AES_256_SHA & 0xffff,
+      TLS1_CK_DHE_RSA_WITH_AES_128_SHA256 & 0xffff,
+      TLS1_CK_DHE_RSA_WITH_AES_256_SHA256 & 0xffff,
+      TLS1_CK_DHE_RSA_WITH_AES_128_GCM_SHA256 & 0xffff,
+      TLS1_CK_DHE_RSA_WITH_AES_256_GCM_SHA384 & 0xffff,
   };
 
   // Set up a linked list of ciphers.
@@ -1403,6 +1673,8 @@ int SSL_CIPHER_get_digest_nid(const SSL_CIPHER *cipher) {
       return NID_sha1;
     case SSL_SHA256:
       return NID_sha256;
+    case SSL_SHA384:
+      return NID_sha384;
   }
   assert(0);
   return NID_undef;
@@ -1653,6 +1925,10 @@ const char *SSL_CIPHER_description(const SSL_CIPHER *cipher, char *buf,
 
     case SSL_SHA256:
       mac = "SHA256";
+      break;
+
+    case SSL_SHA384:
+      mac = "SHA384";
       break;
 
     case SSL_AEAD:
