@@ -23,6 +23,9 @@ struct KYBER512_private_key {
 struct KYBER768_private_key {
   uint8_t opaque[KYBER768_PRIVATE_KEY_BYTES];
 };
+struct KYBER1024_private_key {
+  uint8_t opaque[KYBER1024_PRIVATE_KEY_BYTES];
+};
 struct KYBER512_public_key {
   uint8_t opaque[KYBER512_PUBLIC_KEY_BYTES];
 };
