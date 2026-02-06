@@ -4069,6 +4069,11 @@ struct ssl_ctx_st : public bssl::RefCounted<ssl_ctx_st> {
   // permute_extensions is whether to permute extensions when sending messages.
   bool permute_extensions : 1;
 
+  // As a client by default we will send a non post-quantum share and
+  // a post-quantum share if available. If disable_second_keyshare is set,
+  // we will only send the most preferred keyshare.
+  bool disable_second_keyshare : 1;
+
   // allow_unknown_alpn_protos is whether the client allows unsolicited ALPN
   // protocols from the peer.
   bool allow_unknown_alpn_protos : 1;

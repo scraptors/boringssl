@@ -597,6 +597,7 @@ SSL_CONFIG::SSL_CONFIG(SSL *ssl_arg)
       key_shares_limit(0),
       preserve_tls13_cipher_list(false),
       permute_extensions(false),
+      disable_second_keyshare(false),
       alps_use_new_codepoint(true) {
   assert(ssl);
 }
