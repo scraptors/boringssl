@@ -3436,6 +3436,9 @@ struct SSL_CONFIG {
   // be preserved, potentially preferring ChaCha20-Poly1305 over AES-GCM ciphers.
   // It is only effective on the client side.
   bool preserve_tls13_cipher_list : 1;
+  
+  // tls13_cipher_list, if non-null, is the list of ciphers to use in TLS 1.3
+  bssl::UniquePtr<bssl::SSLCipherPreferenceList> tls13_cipher_list;
 };
 
 // From RFC 8446, used in determining PSK modes.
@@ -4023,6 +4026,10 @@ struct ssl_ctx_st : public bssl::RefCounted<ssl_ctx_st> {
   // verify_sigalgs, if not empty, is the set of signature algorithms
   // accepted from the peer in decreasing order of preference.
   bssl::Array<uint16_t> verify_sigalgs;
+
+  // delegated_credentials, if not empty, is the set of signature algorithms
+  // supported by the client.
+  bssl::Array<uint16_t> delegated_credentials;
 
   // retain_only_sha256_of_client_certs is true if we should compute the SHA256
   // hash of the peer's certificate and then discard it to save memory and
