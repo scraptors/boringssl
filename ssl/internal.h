@@ -3436,9 +3436,6 @@ struct SSL_CONFIG {
   // be preserved, potentially preferring ChaCha20-Poly1305 over AES-GCM ciphers.
   // It is only effective on the client side.
   bool preserve_tls13_cipher_list : 1;
-  
-  // tls13_cipher_list, if non-null, is the list of ciphers to use in TLS 1.3
-  bssl::UniquePtr<bssl::SSLCipherPreferenceList> tls13_cipher_list;
 };
 
 // From RFC 8446, used in determining PSK modes.
@@ -4058,6 +4055,10 @@ struct ssl_ctx_st : public bssl::RefCounted<ssl_ctx_st> {
   // permute_extensions is whether to permute extensions when sending messages.
   bool permute_extensions : 1;
 
+  // rama_ssl_extension_order, if not empty, will use this actions
+  // as the order to be used to write the ssl extensions.
+  bssl::Array<uint16_t> extension_order;
+
   // allow_unknown_alpn_protos is whether the client allows unsolicited ALPN
   // protocols from the peer.
   bool allow_unknown_alpn_protos : 1;
@@ -4086,6 +4087,20 @@ struct ssl_ctx_st : public bssl::RefCounted<ssl_ctx_st> {
   // resumption_across_names_enabled indicates whether a TLS 1.3 server should
   // signal its sessions may be resumed across names in the server certificate.
   bool resumption_across_names_enabled : 1;
+
+  // record_size_limit is whether to send record size limit extension.
+  uint16_t record_size_limit = 0;
+
+  // key_shares limit is the maximum number of key shares to send.
+  uint8_t key_shares_limit = 0;
+
+  // preserve_tls13_cipher_list indicates that the TLS 1.3 cipher list order should
+  // be preserved, potentially preferring ChaCha20-Poly1305 over AES-GCM ciphers.
+  // It is only effective on the client side.
+  bool preserve_tls13_cipher_list : 1;
+
+  // tls13_cipher_list, if non-null, is the list of ciphers to use in TLS 1.3
+  bssl::UniquePtr<bssl::SSLCipherPreferenceList> tls13_cipher_list;
 
  private:
   friend RefCounted;
