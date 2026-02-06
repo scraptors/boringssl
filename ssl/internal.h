@@ -968,7 +968,7 @@ struct NamedGroup {
 Span<const NamedGroup> NamedGroups();
 
 // kNumNamedGroups is the number of supported groups.
-constexpr size_t kNumNamedGroups = 7u;
+constexpr size_t kNumNamedGroups = 9u;
 
 // DefaultSupportedGroupIds returns the list of IDs for the default groups that
 // are supported when the caller hasn't explicitly configured supported groups.
