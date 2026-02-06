@@ -4057,9 +4057,6 @@ struct ssl_ctx_st : public bssl::RefCounted<ssl_ctx_st> {
   // grease_enabled is whether GREASE (RFC 8701) is enabled.
   bool grease_enabled : 1;
 
-  // permute_extensions is whether to permute extensions when sending messages.
-  bool permute_extensions : 1;
-
   // As a client by default we will send a non post-quantum share and
   // a post-quantum share if available. If disable_second_keyshare is set,
   // we will only send the most preferred keyshare.
@@ -4068,6 +4065,9 @@ struct ssl_ctx_st : public bssl::RefCounted<ssl_ctx_st> {
   // rama_ssl_extension_order, if not empty, will use this actions
   // as the order to be used to write the ssl extensions.
   bssl::Array<uint16_t> extension_order;
+
+  // permute_extensions is whether to permute extensions when sending messages.
+  bool permute_extensions : 1;
 
   // allow_unknown_alpn_protos is whether the client allows unsolicited ALPN
   // protocols from the peer.
