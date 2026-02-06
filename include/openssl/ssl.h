@@ -2557,6 +2557,7 @@ OPENSSL_EXPORT size_t SSL_CTX_get_num_tickets(const SSL_CTX *ctx);
 #define SSL_GROUP_X25519_MLKEM768 0x11ec
 #define SSL_GROUP_X25519_KYBER768_DRAFT00 0x6399
 #define SSL_GROUP_MLKEM1024 0x0202
+#define SSL_GROUP_P256_KYBER768_DRAFT00 0xfe32
 
 // SSL_CTX_set1_group_ids sets the preferred groups for |ctx| to |group_ids|.
 // Each element of |group_ids| should be a unique one of the |SSL_GROUP_*|
@@ -6031,6 +6032,20 @@ OPENSSL_EXPORT int SSL_CTX_set1_curves_list(SSL_CTX *ctx, const char *curves);
 
 // SSL_set1_curves_list calls |SSL_set1_groups_list|.
 OPENSSL_EXPORT int SSL_set1_curves_list(SSL *ssl, const char *curves);
+
+// By default, a client will send both a non post-quantum and a post-quantum
+// keyshare if available.
+//
+// SSL_use_second_keyshare controls this behaviour. If |enabled| is 0, then
+// a client using |ssl| will only send one keyshare.
+OPENSSL_EXPORT void SSL_use_second_keyshare(SSL *ssl, int enabled);
+
+// By default, a client will send both a non post-quantum and a post-quantum
+// keyshare if available.
+//
+// SSL_CTX_use_second_keyshare controls this behaviour. If |enabled| is 0, then
+// a client using |ctx| will only send one keyshare.
+OPENSSL_EXPORT void SSL_CTX_use_second_keyshare(SSL_CTX *ctx, int enabled);
 
 // TLSEXT_nid_unknown is a constant used in OpenSSL for
 // |SSL_get_negotiated_group| to return an unrecognized group. BoringSSL never

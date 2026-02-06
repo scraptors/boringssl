@@ -101,6 +101,7 @@ static bool tls1_check_duplicate_extensions(const CBS *cbs) {
 static bool is_post_quantum_group(uint16_t id) {
   switch (id) {
     case SSL_GROUP_X25519_KYBER768_DRAFT00:
+    case SSL_GROUP_P256_KYBER768_DRAFT00:
     case SSL_GROUP_X25519_MLKEM768:
     case SSL_GROUP_MLKEM1024:
       return true;
@@ -2241,18 +2242,21 @@ bool ssl_setup_key_shares(SSL_HANDSHAKE *hs, uint16_t override_group_id) {
     if (!default_key_shares.TryPushBack(supported_group_list[0])) {
       return false;
     }
-    // We'll try to include one post-quantum and one classical initial key
-    // share.
-    for (size_t i = 1; i < supported_group_list.size(); i++) {
-      if (is_post_quantum_group(default_key_shares[0]) ==
-          is_post_quantum_group(supported_group_list[i])) {
-        continue;
+
+    if (!ssl->config->disable_second_keyshare) {
+      // We'll try to include one post-quantum and one classical initial key
+      // share.
+      for (size_t i = 1; i < supported_group_list.size(); i++) {
+        if (is_post_quantum_group(default_key_shares[0]) ==
+            is_post_quantum_group(supported_group_list[i])) {
+          continue;
+        }
+        if (!default_key_shares.TryPushBack(supported_group_list[i])) {
+          return false;
+        }
+        assert(default_key_shares[1] != default_key_shares[0]);
+        break;
       }
-      if (!default_key_shares.TryPushBack(supported_group_list[i])) {
-        return false;
-      }
-      assert(default_key_shares[1] != default_key_shares[0]);
-      break;
     }
     selected_key_shares.emplace(default_key_shares);
   }

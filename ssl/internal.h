@@ -968,7 +968,7 @@ struct NamedGroup {
 Span<const NamedGroup> NamedGroups();
 
 // kNumNamedGroups is the number of supported groups.
-constexpr size_t kNumNamedGroups = 7u;
+constexpr size_t kNumNamedGroups = 8u;
 
 // DefaultSupportedGroupIds returns the list of IDs for the default groups that
 // are supported when the caller hasn't explicitly configured supported groups.
@@ -3413,6 +3413,11 @@ struct SSL_CONFIG {
   // permute_extensions is whether to permute extensions when sending messages.
   bool permute_extensions : 1;
 
+  // As a client by default we will send a non post-quantum share and
+  // a post-quantum share if available. If disable_second_keyshare is set,
+  // we will only send the most preferred keyshare.
+  bool disable_second_keyshare : 1;
+
   // aes_hw_override if set indicates we should override checking for aes
   // hardware support, and use the value in aes_hw_override_value instead.
   bool aes_hw_override : 1;
@@ -4058,6 +4063,11 @@ struct ssl_ctx_st : public bssl::RefCounted<ssl_ctx_st> {
 
   // permute_extensions is whether to permute extensions when sending messages.
   bool permute_extensions : 1;
+
+  // As a client by default we will send a non post-quantum share and
+  // a post-quantum share if available. If disable_second_keyshare is set,
+  // we will only send the most preferred keyshare.
+  bool disable_second_keyshare : 1;
 
   // allow_unknown_alpn_protos is whether the client allows unsolicited ALPN
   // protocols from the peer.
