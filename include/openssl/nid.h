@@ -5511,6 +5511,11 @@ extern "C" {
 #define SN_P256Kyber768Draft00 "P256Kyber768Draft00"
 #define NID_P256Kyber768Draft00 971
 
+#define SN_ffdhe2048 "ffdhe2048"
+#define NID_ffdhe2048 972
+
+#define SN_ffdhe3072 "ffdhe3072"
+#define NID_ffdhe3072 973
 
 #if defined(__cplusplus)
 } /* extern C */

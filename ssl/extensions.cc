@@ -2039,7 +2039,7 @@ bool ssl_ext_pre_shared_key_add_serverhello(SSL_HANDSHAKE *hs, CBB *out) {
 static bool ext_psk_key_exchange_modes_add_clienthello(
     const SSL_HANDSHAKE *hs, CBB *out, CBB *out_compressible,
     ssl_client_hello_type_t type) {
-  if (hs->max_version < TLS1_3_VERSION) {
+  if (hs->max_version < TLS1_3_VERSION || (SSL_get_options(hs->ssl) & SSL_OP_NO_PSK_DHE_KE)) {
     return true;
   }
   // We do not support resumption with PAKEs, so do not offer any PSK key
@@ -2971,6 +2971,26 @@ static bool ext_quic_transport_params_add_serverhello_legacy(SSL_HANDSHAKE *hs,
 static bool ext_delegated_credential_add_clienthello(
     const SSL_HANDSHAKE *hs, CBB *out, CBB *out_compressible,
     ssl_client_hello_type_t type) {
+    if (hs->config->delegated_credentials.empty()) {
+        return true;
+    }
+
+    CBB contents, data;
+    const Array<uint16_t>& signature_hash_algorithms = hs->config->delegated_credentials;
+    if (!CBB_add_u16(out, TLSEXT_TYPE_delegated_credential) ||
+            !CBB_add_u16_length_prefixed(out, &contents) ||
+            !CBB_add_u16_length_prefixed(&contents, &data)) {
+        return false;
+    }
+    
+    for (const uint16_t alg : signature_hash_algorithms) {
+        if (!CBB_add_u16(&data, alg)) {
+            return false;
+        }
+    }
+    if (!CBB_flush(out)) {
+        return false;
+    }
   return true;
 }
 
@@ -3527,6 +3547,39 @@ bool ssl_negotiate_alps(SSL_HANDSHAKE *hs, uint8_t *out_alert,
   return true;
 }
 
+static bool record_size_limit_add_clienthello(const SSL_HANDSHAKE* hs, CBB* out,
+    CBB* out_compressible,
+    ssl_client_hello_type_t type) {
+    if (hs->config->record_size_limit == 0) {
+        return true;
+    }
+
+    CBB data;
+    const uint16_t data_ = hs->config->record_size_limit;
+    if (!CBB_add_u16(out, TLSEXT_TYPE_record_size_limit) ||
+        !CBB_add_u16_length_prefixed(out, &data) || !CBB_add_u16(&data, data_) ||
+        !CBB_flush(out)) {
+        return false;
+    }
+    return true;
+  }
+
+static bool record_size_limit_parse_serverhello(SSL_HANDSHAKE* hs,
+    uint8_t* out_alert,
+    CBS* contents) {
+    return true;
+}
+
+static bool record_size_limit_parse_clienthello(SSL_HANDSHAKE* hs,
+    uint8_t* out_alert,
+    CBS* contents) {
+    return true;
+}
+
+static bool record_size_limit_add_serverhello(SSL_HANDSHAKE* hs, CBB* out) {
+    return true;
+}
+
 // kExtensions contains all the supported extensions.
 static const struct tls_extension kExtensions[] = {
     {
@@ -3731,6 +3784,13 @@ static const struct tls_extension kExtensions[] = {
         ext_trust_anchors_parse_clienthello,
         ext_trust_anchors_add_serverhello,
     },
+    {
+        TLSEXT_TYPE_record_size_limit,
+        record_size_limit_add_clienthello,
+        record_size_limit_parse_serverhello,
+        record_size_limit_parse_clienthello,
+        record_size_limit_add_serverhello,
+    },
 };
 
 #define kNumExtensions (sizeof(kExtensions) / sizeof(struct tls_extension))
@@ -3741,6 +3801,74 @@ static_assert(kNumExtensions <=
 static_assert(kNumExtensions <=
                   sizeof(((SSL_HANDSHAKE *)nullptr)->extensions.received) * 8,
               "too many extensions for received bitset");
+
+bool ssl_setup_extension_order(SSL_HANDSHAKE *hs) {
+    SSL *const ssl = hs->ssl;
+    if (ssl->ctx->extension_order.empty()) {
+        return ssl_setup_extension_permutation(hs);
+    }
+
+    static_assert(kNumExtensions <= UINT8_MAX,
+                  "extensions_permutation type is too small");
+    Array<uint8_t> permutation;
+    if (!permutation.Init(kNumExtensions)) {
+      return false;
+    }
+
+    bool seen[kNumExtensions] = {0};
+    int permIndex = 0;
+
+    for (uint16_t id : ssl->ctx->extension_order) {
+        size_t j;
+        for (j = 0; j < kNumExtensions; j++) {
+            if (kExtensions[j].value == id) {
+                break;
+            }
+        }
+        if (j == kNumExtensions || seen[j]) {
+            continue;  // Skip unknown or duplicate entries
+        }
+        seen[j] = true;
+        permutation[permIndex++] = j;
+    }
+
+    size_t rem = kNumExtensions - permIndex;
+    if (rem == 0) {
+        hs->extension_permutation = std::move(permutation);
+        return true;
+    }
+
+    size_t offset = permIndex;
+    for (size_t i = 0; i < kNumExtensions; i++) {
+        if (seen[i]) {
+            continue; // skip duplicate entries
+        }
+        seen[i] = true;
+        permutation[permIndex++] = i;
+    }
+
+    if (rem > 1) {
+        size_t seeds_num = rem - 1;
+        uint32_t *seeds = static_cast<uint32_t *>(OPENSSL_malloc(seeds_num * sizeof(uint32_t)));
+        if (!seeds) {
+            permutation.Reset();
+            return false;
+        }
+        if (!RAND_bytes(reinterpret_cast<uint8_t *>(seeds), seeds_num * sizeof(uint32_t))) {
+            permutation.Reset();
+            OPENSSL_free(seeds);
+            return false;
+        }
+        for (size_t i = kNumExtensions - 1; i > offset; i--) {
+            size_t swap_idx = offset + (seeds[i - offset] % (i - offset));
+            std::swap(permutation[i], permutation[swap_idx]);
+        }
+        OPENSSL_free(seeds);
+    }
+
+    hs->extension_permutation = std::move(permutation);
+    return true;
+}
 
 bool ssl_setup_extension_permutation(SSL_HANDSHAKE *hs) {
   if (!hs->config->permute_extensions) {
