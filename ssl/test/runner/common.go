@@ -2095,7 +2095,7 @@ type ProtocolBugs struct {
 	FailIfHelloRetryRequested bool
 
 	// FailIfPostQuantumOffered will cause a server to reject a ClientHello if
-	// post-quantum curves are not supported.
+	// post-quantum curves are supported.
 	FailIfPostQuantumOffered bool
 
 	// ExpectKeyShares, if not nil, lists (in order) the curves that a ClientHello

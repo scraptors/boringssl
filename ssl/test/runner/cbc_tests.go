@@ -14,8 +14,6 @@
 
 package runner
 
-import "strconv"
-
 func addCBCPaddingTests() {
 	testCases = append(testCases, testCase{
 		name: "MaxCBCPadding",
@@ -106,7 +104,6 @@ func addCBCSplittingTests() {
 				"-partial-write",
 				// BoringSSL disables 3DES by default.
 				"-cipher", "ALL:3DES",
-				 "-curves", strconv.Itoa(int(CurveX25519)),
 			},
 		})
 	}

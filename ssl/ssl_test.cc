@@ -506,14 +506,6 @@ static const CurveTest kCurveTests[] = {
         "MLKEM1024:X25519MLKEM768",
         {SSL_GROUP_MLKEM1024, SSL_GROUP_X25519_MLKEM768},
     },
-    {
-        "P256Kyber768Draft00",
-        {SSL_GROUP_P256_KYBER768_DRAFT00},
-    },
-    {
-        "P-256:P256Kyber768Draft00",
-        {SSL_GROUP_SECP256R1, SSL_GROUP_P256_KYBER768_DRAFT00},
-    },
 
     {
         "P-256:P-384:P-521:X25519",
@@ -676,9 +668,7 @@ TEST(SSLTest, CurveRules) {
 }
 
 TEST(SSLTest, DefaultCurves) {
-  const uint16_t kDefaults[] = {SSL_GROUP_X25519_MLKEM768,
-                                SSL_GROUP_P256_KYBER768_DRAFT00,
-                                SSL_GROUP_X25519, SSL_GROUP_SECP256R1,
+  const uint16_t kDefaults[] = {SSL_GROUP_X25519, SSL_GROUP_SECP256R1,
                                 SSL_GROUP_SECP384R1};
 
   // Test the group ID APIs.
@@ -1532,9 +1522,6 @@ static bool GetClientHello(SSL *ssl, std::vector<uint8_t> *out) {
 static size_t GetClientHelloLen(uint16_t max_version, uint16_t session_version,
                                 size_t ticket_len) {
   bssl::UniquePtr<SSL_CTX> ctx(SSL_CTX_new(TLS_method()));
-  // RTG-3417 bas: we need to disable PQ here so that the small ClientHello
-  // padding tests properly tests things.
-  SSL_CTX_set1_curves_list(ctx.get(), "X25519");
   bssl::UniquePtr<SSL_SESSION> session =
       CreateSessionWithTicket(session_version, ticket_len);
   if (!ctx || !session) {
@@ -6828,9 +6815,7 @@ TEST(SSLTest, ApplyHandoffRemovesUnsupportedCurves) {
 
   // The default list of groups is used before applying the handoff.
   EXPECT_THAT(server->config->supported_group_list,
-              ElementsAreArray({SSL_GROUP_X25519_MLKEM768,
-                                SSL_GROUP_P256_KYBER768_DRAFT00,
-                                SSL_GROUP_X25519, SSL_GROUP_SECP256R1,
+              ElementsAreArray({SSL_GROUP_X25519, SSL_GROUP_SECP256R1,
                                 SSL_GROUP_SECP384R1}));
   ASSERT_TRUE(SSL_apply_handoff(server.get(), handoff));
   EXPECT_EQ(1u, server->config->supported_group_list.size());

@@ -129,7 +129,6 @@ read alert 1 0
 				`write hs 1
 read hs 3
 write hs 1
-write hs 1
 read hs 2
 read hs 11
 read hs 12
@@ -1956,7 +1955,6 @@ read alert 1 0
 			`read hs 1
 write hs 2
 write hs 8
-write hs 11
 write hs 11
 write hs 15
 write hs 20
