@@ -592,9 +592,9 @@ SSL_CONFIG::SSL_CONFIG(SSL *ssl_arg)
       jdk11_workaround(false),
       quic_use_legacy_codepoint(false),
       permute_extensions(false),
-      alps_use_new_codepoint(true),
       key_shares_limit(0),
-      preserve_tls13_cipher_list(false) {
+      preserve_tls13_cipher_list(false),
+      alps_use_new_codepoint(true) {
   assert(ssl);
 }
 
