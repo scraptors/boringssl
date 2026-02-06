@@ -3410,6 +3410,9 @@ struct SSL_CONFIG {
   // codepoint to convey QUIC's transport parameters.
   bool quic_use_legacy_codepoint : 1;
 
+  // key_shares_limit is the maximum number of key shares to send.
+  uint8_t key_shares_limit = 0;
+
   // permute_extensions is whether to permute extensions when sending messages.
   bool permute_extensions : 1;
 
@@ -3422,20 +3425,17 @@ struct SSL_CONFIG {
   // true.
   bool aes_hw_override_value : 1;
 
+  // preserve_tls13_cipher_list indicates that the TLS 1.3 cipher list order should
+  // be preserved, potentially preferring ChaCha20-Poly1305 over AES-GCM ciphers.
+  // It is only effective on the client side.
+  bool preserve_tls13_cipher_list : 1;
+
   // alps_use_new_codepoint if set indicates we use new ALPS extension codepoint
   // to negotiate and convey application settings.
   bool alps_use_new_codepoint : 1;
 
   // record_size_limit is whether to send record size limit extension.
   uint16_t record_size_limit = 0;
-
-  // key_shares_limit is the maximum number of key shares to send.
-  uint8_t key_shares_limit = 0;
-
-  // preserve_tls13_cipher_list indicates that the TLS 1.3 cipher list order should
-  // be preserved, potentially preferring ChaCha20-Poly1305 over AES-GCM ciphers.
-  // It is only effective on the client side.
-  bool preserve_tls13_cipher_list : 1;
 };
 
 // From RFC 8446, used in determining PSK modes.
