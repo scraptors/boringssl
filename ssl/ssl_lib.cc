@@ -397,6 +397,7 @@ ssl_ctx_st::ssl_ctx_st(const SSL_METHOD *ssl_method)
       channel_id_enabled(false),
       grease_enabled(false),
       permute_extensions(false),
+      disable_second_keyshare(false),
       allow_unknown_alpn_protos(false),
       false_start_allowed_without_alpn(false),
       handoff(false),
@@ -527,6 +528,7 @@ SSL *SSL_new(SSL_CTX *ctx) {
   ssl->config->retain_only_sha256_of_client_certs =
       ctx->retain_only_sha256_of_client_certs;
   ssl->config->permute_extensions = ctx->permute_extensions;
+  ssl->config->disable_second_keyshare = ctx->disable_second_keyshare;
   ssl->config->aes_hw_override = ctx->aes_hw_override;
   ssl->config->aes_hw_override_value = ctx->aes_hw_override_value;
   ssl->config->compliance_policy = ctx->compliance_policy;
@@ -586,6 +588,7 @@ SSL_CONFIG::SSL_CONFIG(SSL *ssl_arg)
       jdk11_workaround(false),
       quic_use_legacy_codepoint(false),
       permute_extensions(false),
+      disable_second_keyshare(false),
       alps_use_new_codepoint(true) {
   assert(ssl);
 }
@@ -3331,6 +3334,15 @@ int SSL_set1_curves_list(SSL *ssl, const char *curves) {
   return SSL_set1_groups_list(ssl, curves);
 }
 
+void SSL_use_second_keyshare(SSL *ssl, int enabled) {
+  ssl->config->disable_second_keyshare = !enabled;
+}
+
+void SSL_CTX_use_second_keyshare(SSL_CTX *ctx, int enabled) {
+  ctx->disable_second_keyshare = !enabled;
+}
+
+
 namespace fips202205 {
 
 // (References are to SP 800-52r2):
@@ -3342,7 +3354,9 @@ namespace fips202205 {
 // Section 3.3.1
 // "The server shall be configured to only use cipher suites that are
 // composed entirely of NIST approved algorithms"
-static const uint16_t kGroups[] = {SSL_GROUP_SECP256R1, SSL_GROUP_SECP384R1};
+static const uint16_t kGroups[] = {
+    SSL_GROUP_P256_KYBER768_DRAFT00,
+    SSL_GROUP_SECP256R1, SSL_GROUP_SECP384R1};
 
 static const uint16_t kSigAlgs[] = {
     SSL_SIGN_RSA_PKCS1_SHA256,

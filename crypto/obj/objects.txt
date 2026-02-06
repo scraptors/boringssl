@@ -1340,6 +1340,7 @@ secg-scheme 14 3 : dhSinglePass-cofactorDH-sha512kdf-scheme
 
 # NIDs for post quantum hybrid KEMs in TLS (no corresponding OIDs).
  : X25519Kyber768Draft00
+ : P256Kyber768Draft00
  : X25519MLKEM768
 
 # See RFC 8410.

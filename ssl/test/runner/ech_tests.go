@@ -451,7 +451,8 @@ func addEncryptedClientHelloTests() {
 				expectMsgCallback += clientAndServerHello
 			}
 			// EncryptedExtensions onwards.
-			expectMsgCallback += `write hs 8
+			if protocol != dtls {
+				expectMsgCallback += `write hs 8
 write hs 11
 write hs 15
 write hs 20
@@ -462,6 +463,20 @@ write hs 4
 read ack
 read ack
 `
+			} else {
+				expectMsgCallback += `write hs 8
+write hs 11
+write hs 11
+write hs 15
+write hs 20
+read hs 20
+write ack
+write hs 4
+write hs 4
+read ack
+read ack
+`
+			}
 			if protocol != dtls {
 				expectMsgCallback = strings.ReplaceAll(expectMsgCallback, "write ack\n", "")
 				expectMsgCallback = strings.ReplaceAll(expectMsgCallback, "read ack\n", "")
@@ -2349,8 +2364,11 @@ read ack
 
 		// Test the message callback is correctly reported, with and without
 		// HelloRetryRequest.
-		clientAndServerHello := "write clienthelloinner\nwrite hs 1\nread hs 2\n"
-		clientAndServerHelloInitial := clientAndServerHello
+		clientAndServerHelloInitial := "write clienthelloinner\nwrite hs 1\nwrite hs 1\nread hs 2\n"
+		clientAndServerHello  := "write clienthelloinner\nwrite hs 1\nread hs 2\n"
+		if protocol != dtls {
+			clientAndServerHelloInitial = clientAndServerHello
+		}
 		if protocol == tls {
 			clientAndServerHelloInitial += "write ccs\n"
 		}

@@ -14,7 +14,10 @@
 
 package runner
 
-import "slices"
+import (
+	"slices"
+	"strconv"
+)
 
 func addKeyUpdateTests() {
 	// TLS tests.
@@ -295,6 +298,7 @@ func addKeyUpdateTests() {
 			},
 		},
 		shimSendsKeyUpdateBeforeRead: true,
+		flags:            []string{"-curves", strconv.Itoa(int(CurveX25519))},
 	})
 
 	// Test that shim responds to KeyUpdate requests.

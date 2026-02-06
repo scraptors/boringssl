@@ -193,6 +193,109 @@ class X25519KeyShare : public SSLKeyShare {
   uint8_t private_key_[32];
 };
 
+class P256Kyber768Draft00KeyShare : public SSLKeyShare {
+ public:
+  P256Kyber768Draft00KeyShare()
+    : ecks_(EC_group_p256(), SSL_GROUP_SECP256R1) {}
+
+  uint16_t GroupID() const override {
+    return SSL_GROUP_P256_KYBER768_DRAFT00;
+  }
+
+  bool Generate(CBB *out) override {
+    uint8_t kyber_public_key[KYBER_PUBLIC_KEY_BYTES];
+    KYBER_generate_key(kyber_public_key, &kyber_private_key_);
+
+    if(!ecks_.Generate(out) ||
+       !CBB_add_bytes(out, kyber_public_key, sizeof(kyber_public_key))) {
+      return false;
+    }
+
+    return true;
+  }
+
+  bool Encap(CBB *out_ciphertext, Array<uint8_t> *out_secret,
+             uint8_t *out_alert, Span<const uint8_t> peer_key) override {
+    Array<uint8_t> ec_secret;
+
+    *out_alert = SSL_AD_INTERNAL_ERROR;
+
+    if(peer_key.size() != p256_share_size + KYBER_PUBLIC_KEY_BYTES) {
+      *out_alert = SSL_AD_ILLEGAL_PARAMETER;
+      OPENSSL_PUT_ERROR(SSL, SSL_R_BAD_ECPOINT);
+      return false;
+    }
+
+    if (!ecks_.Encap(out_ciphertext, &ec_secret, out_alert,
+                    peer_key.subspan(0, p256_share_size))) {
+      return false;
+    }
+
+    KYBER_public_key peer_kyber_pub;
+    CBS peer_kyber_cbs;
+    CBS_init(&peer_kyber_cbs, peer_key.data() + p256_share_size,
+             KYBER_PUBLIC_KEY_BYTES);
+
+    if (!KYBER_parse_public_key(&peer_kyber_pub, &peer_kyber_cbs)) {
+      *out_alert = SSL_AD_ILLEGAL_PARAMETER;
+      OPENSSL_PUT_ERROR(SSL, SSL_R_BAD_ECPOINT);
+      return false;
+    }
+
+    uint8_t kyber_ciphertext[KYBER_CIPHERTEXT_BYTES];
+    Array<uint8_t> secret;
+    if (!secret.InitForOverwrite(p256_secret_size + KYBER_SHARED_SECRET_BYTES)) {
+      return false;
+    }
+    OPENSSL_memcpy(secret.data(), ec_secret.data(), ec_secret.size());
+    KYBER_encap(kyber_ciphertext, secret.data() + p256_secret_size,
+                &peer_kyber_pub);
+
+    if(!CBB_add_bytes(out_ciphertext, kyber_ciphertext,
+                       sizeof(kyber_ciphertext))) {
+      return false;
+    }
+
+    *out_secret = std::move(secret);
+    return true;
+  }
+
+  bool Decap(Array<uint8_t> *out_secret, uint8_t *out_alert,
+             Span<const uint8_t> ciphertext) override {
+    *out_alert = SSL_AD_INTERNAL_ERROR;
+
+    Array<uint8_t> ec_secret;
+
+    if (ciphertext.size() != p256_share_size + KYBER_CIPHERTEXT_BYTES) {
+      *out_alert = SSL_AD_ILLEGAL_PARAMETER;
+      OPENSSL_PUT_ERROR(SSL, SSL_R_BAD_ECPOINT);
+      return false;
+    }
+
+    if (!ecks_.Decap(&ec_secret, out_alert,
+                     ciphertext.subspan(0, p256_share_size))) {
+      return false;
+    }
+
+    Array<uint8_t> secret;
+    if (!secret.InitForOverwrite(p256_secret_size + KYBER_SHARED_SECRET_BYTES)) {
+      return false;
+    }
+    OPENSSL_memcpy(secret.data(), ec_secret.data(), ec_secret.size());
+    KYBER_decap(secret.data() + p256_secret_size,
+                ciphertext.data() + p256_share_size, &kyber_private_key_);
+    *out_secret = std::move(secret);
+    return true;
+  }
+
+ private:
+  ECKeyShare ecks_;
+  KYBER_private_key kyber_private_key_;
+
+  static constexpr size_t p256_share_size = 65;
+  static constexpr size_t p256_secret_size = 32;
+};
+
 // draft-tls-westerbaan-xyber768d00-03
 class X25519Kyber768KeyShare : public SSLKeyShare {
  public:
@@ -441,9 +544,11 @@ constexpr NamedGroup kNamedGroups[] = {
     {NID_secp521r1, SSL_GROUP_SECP521R1, "P-521", "secp521r1"},
     {NID_X25519, SSL_GROUP_X25519, "X25519", "x25519"},
     {NID_X25519Kyber768Draft00, SSL_GROUP_X25519_KYBER768_DRAFT00,
-     "X25519Kyber768Draft00", ""},
+     "X25519Kyber768Draft00", "Xyber768D00"},
     {NID_X25519MLKEM768, SSL_GROUP_X25519_MLKEM768, "X25519MLKEM768", ""},
     {NID_ML_KEM_1024, SSL_GROUP_MLKEM1024, "MLKEM1024", ""},
+    {NID_P256Kyber768Draft00, SSL_GROUP_P256_KYBER768_DRAFT00,
+     "P256Kyber768Draft00", "P256Kyber768D00"},
 };
 
 static_assert(std::size(kNamedGroups) == kNumNamedGroups,
@@ -455,6 +560,8 @@ Span<const NamedGroup> NamedGroups() { return kNamedGroups; }
 
 Span<const uint16_t> DefaultSupportedGroupIds() {
   static const uint16_t kDefaultSupportedGroupIds[] = {
+      SSL_GROUP_X25519_MLKEM768,
+      SSL_GROUP_P256_KYBER768_DRAFT00,
       SSL_GROUP_X25519,
       SSL_GROUP_SECP256R1,
       SSL_GROUP_SECP384R1,
@@ -478,6 +585,8 @@ UniquePtr<SSLKeyShare> SSLKeyShare::Create(uint16_t group_id) {
       return MakeUnique<X25519MLKEM768KeyShare>();
     case SSL_GROUP_MLKEM1024:
       return MakeUnique<MLKEM1024KeyShare>();
+    case SSL_GROUP_P256_KYBER768_DRAFT00:
+      return MakeUnique<P256Kyber768Draft00KeyShare>();
     default:
       return nullptr;
   }
