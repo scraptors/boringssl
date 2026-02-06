@@ -5508,11 +5508,6 @@ extern "C" {
 #define OBJ_ML_KEM_768 2L, 16L, 840L, 1L, 101L, 3L, 4L, 4L, 2L
 #define OBJ_ENC_ML_KEM_768 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x04, 0x02
 
-
-
-
-
-
 #define SN_ffdhe2048 "ffdhe2048"
 #define NID_ffdhe2048 972
 
