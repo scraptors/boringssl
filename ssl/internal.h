@@ -257,10 +257,11 @@ BSSL_NAMESPACE_BEGIN
 
 // Bits for |algorithm_mkey| (key exchange algorithm).
 #define SSL_kRSA 0x00000001u
-#define SSL_kECDHE 0x00000002u
+#define SSL_kDHE 0x00000002u
+#define SSL_kECDHE 0x00000004u
 // SSL_kPSK is only set for plain PSK, not ECDHE_PSK.
-#define SSL_kPSK 0x00000004u
-#define SSL_kGENERIC 0x00000008u
+#define SSL_kPSK 0x00000008u
+#define SSL_kGENERIC 0x00000010u
 
 // Bits for |algorithm_auth| (server authentication).
 #define SSL_aRSA_SIGN 0x00000001u
@@ -285,8 +286,14 @@ BSSL_NAMESPACE_BEGIN
 // Bits for |algorithm_mac| (symmetric authentication).
 #define SSL_SHA1 0x00000001u
 #define SSL_SHA256 0x00000002u
+
+// SSL_SHA384 was removed in
+// https://boringssl-review.googlesource.com/c/boringssl/+/27944/
+// but restored to impersonate browsers with older ciphers.
+#define SSL_SHA384 0x00000004u
+
 // SSL_AEAD is set for all AEADs.
-#define SSL_AEAD 0x00000004u
+#define SSL_AEAD 0x00000008u
 
 // Bits for |algorithm_prf| (handshake digest).
 #define SSL_HANDSHAKE_MAC_DEFAULT 0x1
@@ -369,6 +376,12 @@ const EVP_MD *ssl_get_handshake_digest(uint16_t version,
 bool ssl_create_cipher_list(UniquePtr<SSLCipherPreferenceList> *out_cipher_list,
                             const bool has_aes_hw, const char *rule_str,
                             bool strict);
+
+// ssl_create_tls13_cipher_list is like |ssl_create_cipher_list| but only
+// supports TLS 1.3 cipher suites.
+bool ssl_create_preserve_tls13_cipher_list(
+    UniquePtr<SSLCipherPreferenceList> *out_cipher_list,
+    const char *rule_str, bool strict);
 
 // ssl_cipher_auth_mask_for_key returns the mask of cipher |algorithm_auth|
 // values suitable for use with |key| in TLS 1.2 and below. |sign_ok| indicates
@@ -1830,6 +1843,10 @@ struct SSL_HANDSHAKE {
   // delegated credentials.
   Array<uint16_t> peer_delegated_credential_sigalgs;
 
+ 
+  Array<uint8_t> dh_p;
+  Array<uint8_t> dh_g;
+
   // peer_key is the peer's ECDH key for a TLS 1.2 client.
   Array<uint8_t> peer_key;
 
@@ -2123,6 +2140,10 @@ bool tls13_add_finished(SSL_HANDSHAKE *hs);
 bool tls13_process_new_session_ticket(SSL *ssl, const SSLMessage &msg);
 bssl::UniquePtr<SSL_SESSION> tls13_create_session_with_ticket(SSL *ssl,
                                                               CBS *body);
+
+// defined by the provided extension order, or falls back
+// to ssl_setup_extension_permutation otherwise.
+bool ssl_setup_extension_order(SSL_HANDSHAKE *hs);
 
 // ssl_setup_extension_permutation computes a ClientHello extension permutation
 // for |hs|, if applicable. It returns true on success and false on error.
@@ -3327,6 +3348,10 @@ struct SSL_CONFIG {
   // accepted from the peer in decreasing order of preference.
   Array<uint16_t> verify_sigalgs;
 
+  // delegated_credentials, if not empty, is the set of signature algorithms
+  // supported by the client.
+  Array<uint16_t> delegated_credentials;
+
   // srtp_profiles is the list of configured SRTP protection profiles for
   // DTLS-SRTP.
   UniquePtr<STACK_OF(SRTP_PROTECTION_PROFILE)> srtp_profiles;
@@ -3400,6 +3425,17 @@ struct SSL_CONFIG {
   // alps_use_new_codepoint if set indicates we use new ALPS extension codepoint
   // to negotiate and convey application settings.
   bool alps_use_new_codepoint : 1;
+
+  // record_size_limit is whether to send record size limit extension.
+  uint16_t record_size_limit = 0;
+
+  // key_shares_limit is the maximum number of key shares to send.
+  uint8_t key_shares_limit = 0;
+
+  // preserve_tls13_cipher_list indicates that the TLS 1.3 cipher list order should
+  // be preserved, potentially preferring ChaCha20-Poly1305 over AES-GCM ciphers.
+  // It is only effective on the client side.
+  bool preserve_tls13_cipher_list : 1;
 };
 
 // From RFC 8446, used in determining PSK modes.
